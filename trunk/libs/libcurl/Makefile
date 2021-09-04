@@ -1,21 +1,12 @@
-SRC_NAME=curl-7.75.0
-SRC_URL=https://github.com/curl/curl/releases/download/curl-7_75_0/curl-7.75.0.tar.xz
+SRC_NAME=curl-7.78.0
 
 LDFLAGS += -Wl,-rpath-link=$(STAGEDIR)/lib
 
-all: download_test extract_test config_test
+all: unzip config_test
 	$(MAKE) -j$(HOST_NCPU) -C $(SRC_NAME)
 
-download_test:
-	( if [ ! -f $(SRC_NAME).tar.xz ]; then \
-		wget -t5 --timeout=20 --no-check-certificate -O $(SRC_NAME).tar.xz $(SRC_URL); \
-	fi )
-
-extract_test:
-	( if [ ! -d $(SRC_NAME) ]; then \
-		tar xf $(SRC_NAME).tar.xz; \
-		patch -d $(SRC_NAME) -p1 -i ../no_docs_test.patch; \
-	fi )
+unzip:
+	( tar Jxf $(SRC_NAME).tar.xz )
 
 config_test:
 	( if [ -f ./config_done ]; then \
@@ -25,36 +16,39 @@ config_test:
 	fi )
 
 configure:
-	( cd $(SRC_NAME) ; \
+	( cd $(SRC_NAME) && \
+	autoreconf -f && \
 	./configure \
 		--prefix=$(STAGEDIR) \
+		--enable-openssl-auto-load-config \
 		--enable-static \
 		--enable-shared \
 		$(if $(CONFIG_IPV6),--enable-ipv6,--disable-ipv6) \
+		--disable-ares \
+		--disable-curldebug \
+		--disable-debug \
+		--disable-dict \
 		--disable-gopher \
+		--disable-imap \
 		--disable-ldap \
 		--disable-ldaps \
+		--disable-libcurl-option \
+		--disable-manual \
+		--disable-pop3 \
+		--disable-rt \
 		--disable-rtsp \
+		--disable-smb \
+		--disable-smtp \
+		--disable-sspi \
 		--disable-telnet \
 		--disable-tftp \
-		--disable-smtp \
-		--disable-pop3 \
-		--disable-imap \
-		--disable-sspi \
-		--disable-dict \
-		--disable-ares \
-		--disable-debug \
-		--disable-curldebug \
-		--disable-manual \
-		--disable-verbose \
-		--disable-tls-srp \
-		--disable-libcurl-option \
 		--disable-threaded-resolver \
-		--without-gnutls \
+		--disable-tls-srp \
+		--disable-verbose \
 		--without-ca-bundle \
-		--without-libidn \
-		--without-libssh2 \
+		--without-gnutls \
 		--without-krb4 \
+		--without-libssh2 \
 		--without-nss \
 		--with-random=/dev/urandom \
 		--with-zlib=$(STAGEDIR) \

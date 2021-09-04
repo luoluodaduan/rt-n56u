@@ -2,9 +2,14 @@ SRC_NAME=ipset-6.x
 
 THISDIR = $(shell pwd)
 
-all: config_test
-	$(MAKE) -C $(SRC_NAME)
-	$(MAKE) modules -C $(SRC_NAME)
+CFLAGS += -fvisibility=hidden
+
+all: unzip config_test
+	$(MAKE) -j$(HOST_NCPU) -C $(SRC_NAME)
+	$(MAKE) modules -j$(HOST_NCPU) -C $(SRC_NAME)
+
+unzip:
+	( tar Jxf $(SRC_NAME).tar.xz )
 
 config_test:
 	( if [ -f ./config_done ]; then \
@@ -14,9 +19,9 @@ config_test:
 	fi )
 
 configure:
-	( cd $(SRC_NAME) ; \
-	./autogen.sh ; \
-	PKG_CONFIG_PATH=$(STAGEDIR)/lib/pkgconfig \
+	( cd $(SRC_NAME) && \
+	./autogen.sh && \
+	export PKG_CONFIG_PATH=$(STAGEDIR)/lib/pkgconfig && \
 	./configure \
 		--prefix= \
 		--enable-static \
@@ -38,4 +43,3 @@ clean:
 
 romfs:
 	$(ROMFSINST) $(THISDIR)/$(SRC_NAME)/src/ipset /sbin/ipset
-

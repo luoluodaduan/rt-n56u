@@ -306,8 +306,8 @@ unsigned int ieee80211_get_mesh_hdrlen(struct ieee80211s_hdr *meshhdr)
 }
 EXPORT_SYMBOL(ieee80211_get_mesh_hdrlen);
 
-int ieee80211_data_to_8023(struct sk_buff *skb, const u8 *addr,
-			   enum nl80211_iftype iftype)
+static int __ieee80211_data_to_8023(struct sk_buff *skb, const u8 *addr,
+	enum nl80211_iftype iftype, bool is_amsdu)
 {
 	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *) skb->data;
 	u16 hdrlen, ethertype;
@@ -400,9 +400,9 @@ int ieee80211_data_to_8023(struct sk_buff *skb, const u8 *addr,
 	payload = skb->data + hdrlen;
 	ethertype = (payload[6] << 8) | payload[7];
 
-	if (likely((compare_ether_addr(payload, rfc1042_header) == 0 &&
-		    ethertype != ETH_P_AARP && ethertype != ETH_P_IPX) ||
-		   compare_ether_addr(payload, bridge_tunnel_header) == 0)) {
+	if (likely((!is_amsdu && compare_ether_addr(payload, rfc1042_header) == 0 &&
+		ethertype != ETH_P_AARP && ethertype != ETH_P_IPX) ||
+		compare_ether_addr(payload, bridge_tunnel_header) == 0)) {
 		/* remove RFC1042 or Bridge-Tunnel encapsulation and
 		 * replace EtherType */
 		skb_pull(skb, hdrlen + 6);
@@ -420,6 +420,12 @@ int ieee80211_data_to_8023(struct sk_buff *skb, const u8 *addr,
 		ehdr->h_proto = len;
 	}
 	return 0;
+}
+
+int ieee80211_data_to_8023(struct sk_buff *skb, const u8 *addr,
+	enum nl80211_iftype iftype)
+{
+	return __ieee80211_data_to_8023(skb, addr, iftype, false);
 }
 EXPORT_SYMBOL(ieee80211_data_to_8023);
 
@@ -576,6 +582,9 @@ void ieee80211_amsdu_to_8023s(struct sk_buff *skb, struct sk_buff_head *list,
 		padding = (4 - subframe_len) & 0x3;
 		/* the last MSDU has no padding */
 		if (subframe_len > remaining)
+			goto purge;
+		/* mitigate A-MSDU aggregation injection attacks */
+		if (ether_addr_equal(eth->h_dest, rfc1042_header))
 			goto purge;
 
 		skb_pull(skb, sizeof(struct ethhdr));

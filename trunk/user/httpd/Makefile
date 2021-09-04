@@ -8,6 +8,9 @@ SHDIR = $(ROOTDIR)/user/shared
 include $(SHDIR)/boards.mk
 include $(SHDIR)/cflags.mk
 
+CFLAGS  += -O2 -ffunction-sections -fdata-sections -fvisibility=hidden
+LDFLAGS += -Wl,--gc-sections
+
 CFLAGS += -Wall -I. -I$(SHDIR) -I$(SHDIR)/include
 CFLAGS += -I$(USERDIR)/wireless_tools
 

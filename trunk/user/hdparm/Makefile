@@ -22,7 +22,7 @@ CFLAGS += -DHDPARM_MINI
 endif
 LDFLAGS = -s
 
-CFLAGS += -ffunction-sections -fdata-sections
+CFLAGS += -ffunction-sections -fdata-sections -fvisibility=hidden
 LDFLAGS += -Wl,--gc-sections
 
 INSTALL = install
@@ -36,7 +36,7 @@ OBJS += fallocate.o fibmap.o fwdownload.o dvdspeed.o
 endif
 
 all:
-	$(MAKE) hdparm
+	$(MAKE) -j$(HOST_NCPU) hdparm
 
 hdparm: hdparm.h sgio.h $(OBJS)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o hdparm $(OBJS)
@@ -70,4 +70,3 @@ romfs:
 
 clean:
 	-rm -f hdparm $(OBJS) core 2>/dev/null
-

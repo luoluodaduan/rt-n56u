@@ -2,6 +2,9 @@ SRC_NAME=mtd-utils-2.0.2
 
 THISDIR = $(shell pwd)
 
+CFLAGS += $(COPT) -ffunction-sections -fdata-sections -fvisibility=hidden
+LDFLAGS += -Wl,--gc-sections
+
 all: extract_test config_test
 	$(MAKE) -j$(HOST_NCPU) -C $(SRC_NAME)
 
@@ -18,7 +21,7 @@ config_test:
 	fi )
 
 configure:
-	( cd $(SRC_NAME) ; \
+	( cd $(SRC_NAME) && \
 	./configure \
 		--prefix= \
 		--enable-static \

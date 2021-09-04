@@ -17,19 +17,22 @@ endif
 
 SHDIR = $(ROOTDIR)/user/shared
 
-CFLAGS	+= -Wall -I.
-CFLAGS	+= -I$(SHDIR) -I$(ROOTDIR)/$(LINUXDIR)/include/nvram
-CFLAGS	+= -s
-LDFLAGS	+= -L. -L../shared -lshared
+CFLAGS += -Wall -I.
+CFLAGS += -I$(SHDIR) -I$(ROOTDIR)/$(LINUXDIR)/include/nvram
+CFLAGS += -s
+LDFLAGS += -L. -L../shared -lshared
+
+CFLAGS += -ffunction-sections -fdata-sections -fvisibility=hidden
+LDFLAGS += -Wl,--gc-sections
 
 ifdef CONFIG_MTD_NAND_RALINK
-CFLAGS	+= -DCONFIG_MTD_NAND_RALINK
+CFLAGS += -DCONFIG_MTD_NAND_RALINK
 endif
 ifdef CONFIG_MTD_NAND_MTK
-CFLAGS	+= -DCONFIG_MTD_NAND_MTK
+CFLAGS += -DCONFIG_MTD_NAND_MTK
 endif
 ifdef CONFIG_MTD_NAND_USE_UBI_PART
-CFLAGS	+= -DCONFIG_MTD_NAND_USE_UBI_PART
+CFLAGS += -DCONFIG_MTD_NAND_USE_UBI_PART
 endif
 
 OBJS = nvram.o
@@ -47,4 +50,3 @@ clean:
 
 romfs:
 	$(ROMFSINST) /usr/sbin/nvram
-

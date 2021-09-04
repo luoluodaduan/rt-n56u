@@ -187,7 +187,7 @@ struct nvram_pair router_defaults[] = {
 	{ "wl_crypto", "aes" },			/* WPA data encryption */
 	{ "wl_wpa_psk", DEF_WLAN_5G_PSK },			/* WPA pre-shared key */
 	{ "wl_wpa_gtk_rekey", "3600" },		/* GTK rotation interval */
-	{ "wl_radius_ipaddr", ""},		/* RADIUS server IP address */
+	{ "wl_radius_ipaddr", "" },		/* RADIUS server IP address */
 	{ "wl_radius_port", "1812" },		/* RADIUS server UDP port */
 	{ "wl_radius_key", "" },		/* RADIUS shared secret */
 	{ "wl_radio_x", "1" },			/* Enable (1) or disable (0) radio */
@@ -381,7 +381,7 @@ struct nvram_pair router_defaults[] = {
 	{ "st_ftp_anmr", "0" },
 	{ "st_max_user", "10" },
 	{ "apps_dms", "0" },
-	{ "apps_itunes", "0"},
+	{ "apps_itunes", "0" },
 	{ "sh_num", "0" },
 	{ "computer_name", BOARD_NAME },
 	{ "pcache_reclaim", "2" },
@@ -398,7 +398,7 @@ struct nvram_pair router_defaults[] = {
 	{ "dlna_src1", "/media/AiDisk_a1" },
 	{ "dlna_src2", "" },
 	{ "dlna_src3", "" },
-	{ "dlna_rescan", "0"},
+	{ "dlna_rescan", "0" },
 	{ "trmd_enable", "0" },
 	{ "trmd_pport", "51413" },
 	{ "trmd_rport", "9091" },
@@ -568,11 +568,11 @@ struct nvram_pair router_defaults[] = {
 	{ "ss_mtu", "1492" },
 	{ "ss_router_proxy", "1" },
 	{ "ss_lower_port_only", "1" },		//1:22-1023;2:53,80,443
-	{ "ss_timeout", "60"},
-	{ "ss_protocol", "origin"},
-	{ "ss_proto_param", ""},
-	{ "ss_obfs", "plain"},
-	{ "ss_obfs_param", ""},
+	{ "ss_timeout", "60" },
+	{ "ss_protocol", "origin" },
+	{ "ss_proto_param", "" },
+	{ "ss_obfs", "plain" },
+	{ "ss_obfs_param", "" },
 
 	{ "ss-tunnel_enable", "0" },
 	{ "ss-tunnel_local_port", "5301" },
@@ -679,16 +679,16 @@ struct nvram_pair router_defaults[] = {
 	{ "di_recon_pause", "0" },
 	{ "di_addr0", "114.114.114.114" },
 	{ "di_addr1", "208.67.222.222" },
-	{ "di_addr2", "14.17.42.40" },
-	{ "di_addr3", "8.8.8.8" },
-	{ "di_addr4", "8.8.4.4" },
-	{ "di_addr5", "208.67.220.220" },
+	{ "di_addr2", "8.8.4.4" },
+	{ "di_addr3", "" },
+	{ "di_addr4", "" },
+	{ "di_addr5", "" },
 	{ "di_port0", "53" },
 	{ "di_port1", "53" },
-	{ "di_port2", "80" },
-	{ "di_port3", "53" },
-	{ "di_port4", "53" },
-	{ "di_port5", "53" },
+	{ "di_port2", "53" },
+	{ "di_port3", "" },
+	{ "di_port4", "" },
+	{ "di_port5", "" },
 
 	{ "fw_pt_pppoe", "0" },
 
@@ -796,7 +796,7 @@ struct nvram_pair router_defaults[] = {
 #else
 	{ "nf_max_conn", "8192" },
 #endif
-	{ "nf_alg_ftp0", "21" },
+	{ "nf_alg_ftp0", "" },
 	{ "nf_alg_ftp1", "" },
 	{ "nf_alg_pptp", "0" },
 	{ "nf_alg_h323", "0" },
@@ -869,6 +869,21 @@ struct nvram_pair router_defaults[] = {
 	{ "xTun_black_list", "/etc/storage/xTun_black_list" },
 #endif
 
+	/* autoreboot */
+	{ "reboot_schedule_enable", "0" },
+	{ "reboot_schedule", "00000000000" },
+
+	/* Adbyby PlUS+ */
+	{ "adbyby_enable", "0" },
+	{ "adbyby_set", "0" },
+	{ "adbyby_update", "2" },
+	{ "adbyby_update_hour", "00" },
+	{ "adbyby_update_min", "00" },
+	{ "adbyby_ip_x", "0" },
+	{ "adbyby_rules_x", "0" },
+	{ "adbybyip_staticnum_x", "0" },
+	{ "adbybyrules_staticnum_x", "0" },
+
 	{ 0, 0 }
 };
 
@@ -922,6 +937,13 @@ struct nvram_pair tables_defaults[] = {
 
 	{ "wl_wdslist_x", "" },
 	{ "rt_wdslist_x", "" },
+
+	{ "adbybyip_mac_x", "" },
+	{ "adbybyip_ip_x", "" },
+	{ "adbybyip_name_x", "" },
+	{ "adbybyip_ip_road_x", "" },
+	{ "adbybyrules_x", "" },
+	{ "adbybyrules_road_x", "" },
 
 	{ 0, 0 }
 };

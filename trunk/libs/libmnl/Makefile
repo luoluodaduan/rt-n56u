@@ -1,18 +1,10 @@
 SRC_NAME=libmnl-1.0.4
-SRC_URL=http://www.netfilter.org/projects/libmnl/files/$(SRC_NAME).tar.bz2
 
-all: download_test extract_test config_test
-	$(MAKE) -C $(SRC_NAME)
+all: unzip config_test
+	$(MAKE) -j$(HOST_NCPU) -C $(SRC_NAME)
 
-download_test:
-	( if [ ! -f $(SRC_NAME).tar.bz2 ]; then \
-		wget -t5 --timeout=20 --no-check-certificate -O $(SRC_NAME).tar.bz2 $(SRC_URL); \
-	fi )
-
-extract_test:
-	( if [ ! -d $(SRC_NAME) ]; then \
-		tar xjf $(SRC_NAME).tar.bz2; \
-	fi )
+unzip:
+	( tar jxf $(SRC_NAME).tar.bz2 )
 
 config_test:
 	( if [ -f ./config_done ]; then \
@@ -22,7 +14,7 @@ config_test:
 	fi )
 
 configure:
-	( cd $(SRC_NAME) ; \
+	( cd $(SRC_NAME) && \
 	./configure \
 		--prefix=$(STAGEDIR) \
 		--enable-static \
@@ -38,7 +30,6 @@ clean:
 	rm -f config_done
 
 install:
-	$(MAKE) -C $(SRC_NAME) install DESTDIR="" ;
+	$(MAKE) -C $(SRC_NAME) install DESTDIR=""
 
 romfs:
-

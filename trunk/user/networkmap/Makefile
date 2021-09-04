@@ -4,11 +4,12 @@ SHDIR = $(ROOTDIR)/user/shared
 EXEC = networkmap
 OBJS = function.o networkmap.o
 
-CFLAGS  += -Wall -I. -I$(SHDIR) -I$(SHDIR)/include
-CFLAGS  += -s -DNO_PARALLEL
-#CFLAGS  += -DDEBUG -DDEBUG_MORE
-
+CFLAGS += -Wall -I. -I$(SHDIR) -I$(SHDIR)/include
+CFLAGS += -s -DNO_PARALLEL
 LDFLAGS += -L$(SHDIR) -lshared
+
+CFLAGS += -ffunction-sections -fdata-sections -fvisibility=hidden
+LDFLAGS += -Wl,--gc-sections
 
 all: $(EXEC)
 
@@ -18,6 +19,5 @@ $(EXEC): $(OBJS)
 romfs:
 	$(ROMFSINST) /usr/sbin/$(EXEC)
 
-clean: 
+clean:
 	rm -rf *.o $(EXEC) *~
-

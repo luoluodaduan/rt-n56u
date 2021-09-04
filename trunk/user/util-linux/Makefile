@@ -1,25 +1,16 @@
-SRC_NAME=util-linux-2.33.1
-SRC_URL=https://www.kernel.org/pub/linux/utils/util-linux/v2.33/util-linux-2.33.1.tar.xz
+SRC_NAME=util-linux-2.34
 
 THISDIR = $(shell pwd)
 
-CFLAGS += -ffunction-sections -fdata-sections
+CFLAGS += -ffunction-sections -fdata-sections -fvisibility=hidden
 LDFLAGS += -Wl,--gc-sections
 
-all: download_test extract_test config_test
+all: unzip config_test
 	$(MAKE) -j$(HOST_NCPU) -C $(SRC_NAME) && \
 	$(MAKE) -C $(SRC_NAME) install DESTDIR=""
 
-download_test:
-	( if [ ! -f $(SRC_NAME).tar.xz ]; then \
-		wget -t5 --timeout=20 --no-check-certificate -O $(SRC_NAME).tar.xz $(SRC_URL); \
-	fi )
-
-extract_test:
-	( if [ ! -d $(SRC_NAME) ]; then \
-		tar xJf $(SRC_NAME).tar.xz; \
-		patch -d $(SRC_NAME) -p1 -i ../libblkid.patch; \
-	fi )
+unzip:
+	( tar Jxf $(SRC_NAME).tar.xz )
 
 config_test:
 	( if [ -f ./config_done ]; then \
@@ -29,7 +20,7 @@ config_test:
 	fi )
 
 configure:
-	( cd $(SRC_NAME) ; \
+	( cd $(SRC_NAME) && \
 	PKG_CONFIG_PATH=$(STAGEDIR)/lib/pkgconfig \
 	scanf_cv_type_modifier=no \
 	./configure \

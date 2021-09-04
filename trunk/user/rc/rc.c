@@ -1313,6 +1313,12 @@ handle_notifications(void)
 			restart_vlmcsd();
 		}
 #endif
+#if defined(APP_ADBYBY)
+		else if (strcmp(entry->d_name, RCN_RESTART_ADBYBY) == 0)
+		{
+			restart_adbyby();
+		}
+#endif
 #if defined(APP_DNSFORWARDER)
 		else if (strcmp(entry->d_name, RCN_RESTART_DNSFORWARDER) == 0)
 		{
@@ -1439,9 +1445,9 @@ handle_notifications(void)
 		else if (strcmp(entry->d_name, RCN_RESTART_SYSCTL) == 0)
 		{
 			int nf_nat_type = nvram_get_int("nf_nat_type");
-			
+
 			restart_all_sysctl();
-			
+
 			/* flush conntrack after NAT model changing */
 			if (nvram_nf_nat_type != nf_nat_type) {
 				nvram_nf_nat_type = nf_nat_type;
@@ -1550,7 +1556,7 @@ handle_notifications(void)
 			snprintf(notify_name, sizeof(notify_name), "%s/%s", DIR_RC_INCOMPLETE, entry->d_name);
 			remove(notify_name);
 		}
-		
+
 		if (stop_handle)
 			break;
 	}
@@ -1624,7 +1630,6 @@ static const applet_rc_t applets_rc[] = {
 #endif
 	{ NULL, NULL }
 };
-
 
 int
 main(int argc, char **argv)
@@ -1968,4 +1973,3 @@ main(int argc, char **argv)
 
 	return ret;
 }
-

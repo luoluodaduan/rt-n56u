@@ -75,7 +75,7 @@ function prepare_clients(){
 			if(!checkDuplicateName(list_of_BlockedClient[i][0], clients)){
 				k = clients.length;
 				clients[k] = new Array(8);
-				
+
 				clients[k][0] = "*";
 				clients[k][1] = "*";
 				clients[k][2] = list_of_BlockedClient[i][0];
@@ -84,9 +84,9 @@ function prepare_clients(){
 				clients[k][5] = "6";
 				clients[k][6] = "0";
 				clients[k][7] = "b";
-				
+
 				var mac_up = list_of_BlockedClient[i][0].toUpperCase();
-				
+
 				for(j = 0; j < m_dhcp.length; ++j){
 					if (mac_up == m_dhcp[j][0].toUpperCase()){
 						if (m_dhcp[j][2] != null && m_dhcp[j][2].length > 0)
@@ -158,6 +158,20 @@ function add_client_row(table, atIndex, client, blocked, j){
 	var rssiCell = row.insertCell(4);
 	var blockCell = row.insertCell(5);
 
+	var arpon = <% nvram_get_x("","dhcp_static_arp"); %>;
+	var mdhcp = <% nvram_get_x("","dhcp_static_x"); %>;
+	if (arpon == 1 && mdhcp == 1){
+		var j;
+		for(j = 0; j < m_dhcp.length; ++j){
+			if (client[2] == m_dhcp[j][0]){
+			client[0] = m_dhcp[j][2];
+			if (client[1] == m_dhcp[j][1]){
+			client[1] = m_dhcp[j][1];
+			}
+			}
+		}
+	}
+
 	typeCell.style.textAlign = "center";
 	typeCell.innerHTML = "<img title='"+ DEVICE_TYPE[client[5]]+"' src='/bootstrap/img/wl_device/" + client[5] +".gif'>";
 	nameCell.innerHTML = (client[6] == "1") ? "<a href=http://" + client[0] + " target='blank'>" + client[0] + "</a>" : client[0];
@@ -176,15 +190,15 @@ function show_clients(){
 	var i, j, k;
 	var table1, table2;
 	var addClient, clientType, clientName, clientIP, clientMAC, clientBlock;
-	
+
 	table1 = $('Clients_table');
 	table2 = $('xClients_table');
-	
+
 	while (table1.rows.length > 2)
 		table1.deleteRow(-1);
 	while (table2.rows.length > 2)
 		table2.deleteRow(-1);
-	
+
 	var hasBlocked = false;
 	for(j=0, i=0, k=0; j < clients.length; j++){
 		if(clients[j][7] == "u" || sw_mode == "3"){
@@ -456,6 +470,3 @@ function networkmap_update(s){
 </script>
 </body>
 </html>
-
-
-

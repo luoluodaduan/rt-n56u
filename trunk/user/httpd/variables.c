@@ -93,6 +93,20 @@
 			{0,0,0,0}
 		};
 
+	struct variable variables_AdbybyConf_AdIPList[] = {
+			{"adbybyip_mac_x", "14", NULL, FALSE},
+			{"adbybyip_ip_x", "17", NULL, FALSE},
+			{"adbybyip_name_x", "24", NULL, FALSE},
+			{"adbybyip_ip_road_x", "24", NULL, FALSE},
+			{0,0,0,0}
+		};
+
+	struct variable variables_AdbybyConf_AdRULESList[] = {
+			{"adbybyrules_x", "24", NULL, FALSE},
+			{"adbybyrules_road_x", "24", NULL, FALSE},
+			{0,0,0,0}
+		};
+
 #if BOARD_HAS_5G_RADIO
 	struct variable variables_DeviceSecurity11a_ACLList[] = {
 			{"wl_maclist_x", "32", NULL, FALSE},
@@ -193,6 +207,8 @@
 			{"lprd_enable", "", NULL, EVM_RESTART_SPOOLER},
 			{"rawd_enable", "", NULL, EVM_RESTART_SPOOLER},
 			{"help_enable", "", NULL, FALSE},
+			{"reboot_schedule_enable", "", NULL, FALSE},
+			{"reboot_schedule", "", NULL, FALSE},
 			{"scripts.start_script.sh", "File", NULL, EVM_BLOCK_UNSAFE},
 			{"scripts.started_script.sh", "File", NULL, EVM_BLOCK_UNSAFE},
 			{"scripts.shutdown_script.sh", "File", NULL, EVM_BLOCK_UNSAFE},
@@ -505,7 +521,7 @@
 			{"dhcp_staticnum_x", "", NULL, EVM_RESTART_DHCPD},
 			{"dnsmasq.hosts", "File", NULL, EVM_RESTART_DHCPD},
 			{"dnsmasq.dnsmasq.conf", "File", NULL, EVM_RESTART_DHCPD},
-			{"dnsmasq.dhcp.conf", "File", NULL, EVM_RESTART_DHCPD},
+			{"dnsmasq.dnsmasq.servers", "File", NULL, EVM_RESTART_DHCPD},
 			{"http_access", "", NULL, EVM_RESTART_HTTPD},
 			{"http_proto", "", NULL, EVM_RESTART_HTTPD},
 			{"http_lanport", "", NULL, EVM_RESTART_HTTPD},
@@ -865,6 +881,27 @@
 	};
 #endif
 
+#if defined(APP_ADBYBY)
+	struct variable variables_AdbybyConf[] = {
+			{"adbyby_enable", "", NULL, EVM_RESTART_ADBYBY},
+			{"adbyby_ip_x", "", NULL, EVM_RESTART_ADBYBY},
+			{"adbyby_rules_x", "", NULL, EVM_RESTART_ADBYBY},
+			{"adbyby_set", "", NULL, EVM_RESTART_ADBYBY},
+			{"adbyby_update", "", NULL, EVM_RESTART_ADBYBY},
+			{"adbyby_update_hour", "", NULL, EVM_RESTART_ADBYBY},
+			{"adbyby_update_min", "", NULL, EVM_RESTART_ADBYBY},
+			{"adbybyip_staticnum_x", "", NULL, EVM_RESTART_ADBYBY},
+			{"adbybyrules_staticnum_x", "", NULL, EVM_RESTART_ADBYBY},
+			{"scripts.adbyby_rules.sh", "File", NULL, EVM_RESTART_ADBYBY},
+			{"scripts.adbyby_adblack.sh", "File", NULL, EVM_RESTART_ADBYBY},
+			{"scripts.adbyby_adesc.sh", "File", NULL, EVM_RESTART_ADBYBY},
+			{"scripts.adbyby_adplus.sh", "File", NULL, EVM_RESTART_ADBYBY},
+			{"AdIPList", "Group", ARGV((char*)variables_AdbybyConf_AdIPList, "8", "55", "adbybyip_staticnum_x"), EVM_RESTART_ADBYBY},
+			{"AdRULESList", "Group", ARGV((char*)variables_AdbybyConf_AdRULESList, "8", "55", "adbybyrules_staticnum_x"), EVM_RESTART_ADBYBY},
+			{0,0,0,0}
+	};
+#endif
+
 	struct variable variables_WLANConfig11b[] = {
 			{"rt_ssid", "", NULL, EVM_RESTART_WIFI2},
 			{"rt_ssid2", "", NULL, EVM_RESTART_WIFI2},
@@ -985,6 +1022,9 @@
 #if defined(APP_SHADOWSOCKS)
 		{"ShadowsocksConf",		variables_ShadowsocksConf},
 #endif
+#if defined(APP_ADBYBY)
+		{"AdbybyConf",			variables_AdbybyConf},
+#endif
 		{"LANGUAGE",			variables_Language},
 		{0,0}
 	};
@@ -1011,7 +1051,7 @@
 		{EVM_REAPPLY_VPNSVR,		EVT_REAPPLY_VPNSVR,		RCN_REAPPLY_VPNSVR,	0},
 		{EVM_RESTART_DHCPD,		EVT_RESTART_DHCPD,		RCN_RESTART_DHCPD,	0},
 		{EVM_RESTART_SWITCH_CFG,	EVT_RESTART_SWITCH_CFG,		RCN_RESTART_SWITCH_CFG,	0},
-		{EVM_RESTART_SWITCH_VLAN,	EVT_RESTART_SWITCH_VLAN,	RCN_RESTART_SWITCH_VLAN,0},
+		{EVM_RESTART_SWITCH_VLAN,	EVT_RESTART_SWITCH_VLAN,	RCN_RESTART_SWITCH_VLAN,	0},
 		{EVM_RESTART_DDNS,		EVT_RESTART_DDNS,		RCN_RESTART_DDNS,	0},
 		{EVM_RESTART_UPNP,		EVT_RESTART_UPNP,		RCN_RESTART_UPNP,	EVM_RESTART_FIREWALL},
 		{EVM_RESTART_TIME,		EVT_RESTART_TIME,		RCN_RESTART_TIME,	EVM_RESTART_CROND},
@@ -1062,11 +1102,14 @@
 		{EVM_RESTART_VLMCSD,	EVT_RESTART_VLMCSD,		RCN_RESTART_VLMCSD,	0},
 #endif
 #if defined(APP_DNSFORWARDER)
-		{EVM_RESTART_DNSFORWARDER,	EVT_RESTART_DNSFORWARDER,	RCN_RESTART_DNSFORWARDER, 0},
+		{EVM_RESTART_DNSFORWARDER,	EVT_RESTART_DNSFORWARDER,	RCN_RESTART_DNSFORWARDER,	0},
 #endif
 #if defined(APP_SHADOWSOCKS)
-		{EVM_RESTART_SHADOWSOCKS,	EVT_RESTART_SHADOWSOCKS,	RCN_RESTART_SHADOWSOCKS,  0},
-		{EVM_RESTART_SS_TUNNEL,		EVT_RESTART_SS_TUNNEL,		RCN_RESTART_SS_TUNNEL,	  0},
+		{EVM_RESTART_SHADOWSOCKS,	EVT_RESTART_SHADOWSOCKS,	RCN_RESTART_SHADOWSOCKS,	0},
+		{EVM_RESTART_SS_TUNNEL,		EVT_RESTART_SS_TUNNEL,		RCN_RESTART_SS_TUNNEL,	0},
+#endif
+#if defined(APP_ADBYBY)
+		{EVM_RESTART_ADBYBY,		EVT_RESTART_ADBYBY,		RCN_RESTART_ADBYBY,	0},
 #endif
 #if defined(APP_SMBD) || defined(APP_NMBD)
 		{EVM_RESTART_NMBD,		EVT_RESTART_NMBD,		RCN_RESTART_NMBD,	0},
@@ -1074,4 +1117,3 @@
 		{EVM_RESTART_FIREWALL,		EVT_RESTART_FIREWALL,		RCN_RESTART_FIREWALL,	0},
 		{0,0,0,0}
 	};
-

@@ -1,6 +1,10 @@
-CFLAGS+=-Os -Wall -I. $(EXTRACFLAGS)
-LDFLAGS+=-s
-LIBS=md5.o rmd160.o
+CFLAGS += -Os -Wall -I. $(EXTRACFLAGS)
+LDFLAGS += -s
+
+CFLAGS += -ffunction-sections -fdata-sections -fvisibility=hidden
+LDFLAGS += -Wl,--gc-sections
+
+LIBS = md5.o rmd160.o
 
 lanauth: lanauth.o $(LIBS)
 	$(CC) $(CFLAGS) $(LDFLAGS) lanauth.o -o lanauth $(LIBS)

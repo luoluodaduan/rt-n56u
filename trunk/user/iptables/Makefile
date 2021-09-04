@@ -1,12 +1,15 @@
-SRC_NAME=iptables-1.4.16.3
-
-CFLAGS  += -ffunction-sections -fdata-sections
-LDFLAGS += -Wl,--gc-sections
+SRC_NAME=iptables-1.6.2
 
 THISDIR = $(shell pwd)
 
-all:	config_test
-	$(MAKE) -C $(SRC_NAME)
+CFLAGS += -ffunction-sections -fdata-sections -fvisibility=hidden
+LDFLAGS += -Wl,--gc-sections
+
+all: unzip config_test
+	$(MAKE) -j$(HOST_NCPU) -C $(SRC_NAME)
+
+unzip:
+	( tar Jxf $(SRC_NAME).tar.xz )
 
 config_test:
 	( if [ -f ./config_done ]; then \
@@ -16,12 +19,16 @@ config_test:
 	fi )
 
 configure:
-	cp -f $(THISDIR)/$(SRC_NAME)/extensions/disabled/*.* $(THISDIR)/$(SRC_NAME)/extensions
-	( cd $(SRC_NAME) ; \
+	( cd $(SRC_NAME) && \
+	./autogen.sh && \
+	export PKG_CONFIG_PATH=$(STAGEDIR)/lib/pkgconfig && \
 	./configure \
 		--prefix= \
 		--enable-static \
 		--disable-shared \
+		--disable-nftables \
+		--disable-connlabel \
+		--with-xt-lock-name=/var/run/xtables.lock \
 		--with-xtlibdir=/usr/lib/xtables \
 		--with-kernel=$(ROOTDIR)/$(LINUXDIR) \
 		$(if $(CONFIG_IPV6),--enable-ipv6,--disable-ipv6) \

@@ -1418,7 +1418,7 @@ ieee80211_reassemble_add(struct ieee80211_sub_if_data *sdata,
 	entry->seq = seq;
 	entry->rx_queue = rx_queue;
 	entry->last_frag = frag;
-	entry->ccmp = 0;
+	entry->check_sequential_pn = false;
 	entry->extra_len = 0;
 
 	return entry;
@@ -1467,6 +1467,12 @@ ieee80211_reassemble_find(struct ieee80211_sub_if_data *sdata,
 	return NULL;
 }
 
+static bool requires_sequential_pn(struct ieee80211_rx_data *rx, __le16 fc)
+{
+	return rx->key && rx->key->conf.cipher == WLAN_CIPHER_SUITE_CCMP &&
+		ieee80211_has_protected(fc);
+}
+
 static ieee80211_rx_result debug_noinline
 ieee80211_rx_h_defragment(struct ieee80211_rx_data *rx)
 {
@@ -1512,12 +1518,14 @@ ieee80211_rx_h_defragment(struct ieee80211_rx_data *rx)
 		/* This is the first fragment of a new frame. */
 		entry = ieee80211_reassemble_add(rx->sdata, frag, seq,
 						 rx->seqno_idx, &(rx->skb));
-		if (rx->key && rx->key->conf.cipher == WLAN_CIPHER_SUITE_CCMP &&
-		    ieee80211_has_protected(fc)) {
+		if (requires_sequential_pn(rx, fc)) {
 			int queue = rx->security_idx;
-			/* Store CCMP PN so that we can verify that the next
-			 * fragment has a sequential PN value. */
-			entry->ccmp = 1;
+
+			/* Store CCMP/GCMP PN so that we can verify that the
+			 * next fragment has a sequential PN value.
+			 */
+			entry->check_sequential_pn = true;
+			entry->key_color = rx->key->color;
 			memcpy(entry->last_pn,
 			       rx->key->u.ccmp.rx_pn[queue],
 			       CCMP_PN_LEN);
@@ -1535,14 +1543,23 @@ ieee80211_rx_h_defragment(struct ieee80211_rx_data *rx)
 		return RX_DROP_MONITOR;
 	}
 
-	/* Verify that MPDUs within one MSDU have sequential PN values.
-	 * (IEEE 802.11i, 8.3.3.4.5) */
-	if (entry->ccmp) {
+	/* "The receiver shall discard MSDUs and MMPDUs whose constituent
+	 *  MPDU PN values are not incrementing in steps of 1."
+	 * see IEEE P802.11-REVmc/D5.0, 12.5.3.4.4, item d (for CCMP)
+	 * and IEEE P802.11-REVmc/D5.0, 12.5.5.4.4, item d (for GCMP)
+	 */
+	if (entry->check_sequential_pn) {
 		int i;
 		u8 pn[CCMP_PN_LEN], *rpn;
 		int queue;
-		if (!rx->key || rx->key->conf.cipher != WLAN_CIPHER_SUITE_CCMP)
+
+		if (!requires_sequential_pn(rx, fc))
 			return RX_DROP_UNUSABLE;
+
+		/* Prevent mixed key and fragment cache attacks */
+		if (entry->key_color != rx->key->color)
+			return RX_DROP_UNUSABLE;
+
 		memcpy(pn, entry->last_pn, CCMP_PN_LEN);
 		for (i = CCMP_PN_LEN - 1; i >= 0; i--) {
 			pn[i]++;
@@ -1873,6 +1890,23 @@ ieee80211_rx_h_amsdu(struct ieee80211_rx_data *rx)
 
 	if (skb_linearize(skb))
 		return RX_DROP_UNUSABLE;
+
+	if (rx->key) {
+		/*
+		 * We should not receive A-MSDUs on pre-HT connections,
+		 * and HT connections cannot use old ciphers. Thus drop
+		 * them, as in those cases we couldn't even have SPP
+		 * A-MSDUs or such.
+		 */
+		switch (rx->key->conf.cipher) {
+		case WLAN_CIPHER_SUITE_WEP40:
+		case WLAN_CIPHER_SUITE_WEP104:
+		case WLAN_CIPHER_SUITE_TKIP:
+			return RX_DROP_UNUSABLE;
+		default:
+			break;
+		}
+	}
 
 	ieee80211_amsdu_to_8023s(skb, &frame_list, dev->dev_addr,
 				 rx->sdata->vif.type,
@@ -2590,7 +2624,7 @@ ieee80211_rx_h_mgmt(struct ieee80211_rx_data *rx)
 
 /* TODO: use IEEE80211_RX_FRAGMENTED */
 static void ieee80211_rx_cooked_monitor(struct ieee80211_rx_data *rx,
-					struct ieee80211_rate *rate)
+	struct ieee80211_rate *rate)
 {
 	struct ieee80211_sub_if_data *sdata;
 	struct ieee80211_local *local = rx->local;
