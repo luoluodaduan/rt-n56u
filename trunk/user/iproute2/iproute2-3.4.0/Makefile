@@ -35,7 +35,6 @@ HOSTCC = gcc
 CFLAGS += -Wstrict-prototypes
 CFLAGS += -I../include
 CFLAGS += -D_GNU_SOURCE $(DEFINES)
-CFLAGS += -ffunction-sections -fdata-sections
 YACCFLAGS = -d -t -v
 
 SUBDIRS=lib tc
@@ -45,6 +44,8 @@ endif
 
 LIBNETLINK=../lib/libnetlink.a ../lib/libutil.a
 LDLIBS += $(LIBNETLINK)
+
+CFLAGS += -ffunction-sections -fdata-sections -fvisibility=hidden
 LDFLAGS += -Wl,--gc-sections
 
 all:

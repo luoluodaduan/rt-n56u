@@ -1993,6 +1993,12 @@ recv_and_process_client_pkt(void /*int fd*/)
 		goto bail;
 	}
 
+	/* Respond only to client and symmetric active packets */
+	if ((msg.m_status & MODE_MASK) != MODE_CLIENT
+	 && (msg.m_status & MODE_MASK) != MODE_SYM_ACT) {
+		goto bail;
+	}
+
 	query_status = msg.m_status;
 	query_xmttime = msg.m_xmttime;
 
@@ -2398,11 +2404,6 @@ int ntpd_main(int argc UNUSED_PARAM, char **argv)
 	remove_pidfile(CONFIG_PID_FILE_PATH "/ntpd.pid");
 	kill_myself_with_sig(bb_got_signal);
 }
-
-
-
-
-
 
 /*** openntpd-4.6 uses only adjtime, not adjtimex ***/
 

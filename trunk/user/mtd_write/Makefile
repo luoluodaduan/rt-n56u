@@ -5,9 +5,9 @@ EXEC = mtd_write
 OBJS = mtd.o
 
 CFLAGS += -I$(SHDIR)/include
-CFLAGS += -ffunction-sections -fdata-sections
-
 LDFLAGS += -static
+
+CFLAGS += -ffunction-sections -fdata-sections -fvisibility=hidden
 LDFLAGS += -Wl,--gc-sections
 
 all: $(EXEC)
@@ -20,4 +20,3 @@ romfs:
 
 clean:
 	rm -f $(EXEC) *.o
-

@@ -8,6 +8,10 @@
  */
 #include "libbb.h"
 
+#if defined(IPV6_PKTINFO) && !defined(IPV6_RECVPKTINFO)
+# define IPV6_RECVPKTINFO IPV6_PKTINFO
+#endif
+
 /*
  * This asks kernel to let us know dst addr/port of incoming packets
  * We don't check for errors here. Not supported == won't be used
@@ -18,13 +22,8 @@ socket_want_pktinfo(int fd UNUSED_PARAM)
 #ifdef IP_PKTINFO
 	setsockopt_1(fd, IPPROTO_IP, IP_PKTINFO);
 #endif
-#if ENABLE_FEATURE_IPV6
-# ifdef IPV6_RECVPKTINFO
+#if ENABLE_FEATURE_IPV6 && defined(IPV6_RECVPKTINFO)
 	setsockopt_1(fd, IPPROTO_IPV6, IPV6_RECVPKTINFO);
-	setsockopt_1(fd, IPPROTO_IPV6, IPV6_2292PKTINFO);
-# elif defined(IPV6_PKTINFO)
-	setsockopt_1(fd, IPPROTO_IPV6, IPV6_PKTINFO);
-# endif
 #endif
 }
 
@@ -75,12 +74,13 @@ send_to_from(int fd, void *buf, size_t len, int flags,
 	msg.msg_flags = flags;
 
 	cmsgptr = CMSG_FIRSTHDR(&msg);
-# if ENABLE_FEATURE_IPV6
-	if ((to->sa_family == AF_INET || to->sa_family == AF_INET6)
-# else
-	if ((to->sa_family == AF_INET)
-# endif
-	    && from->sa_family == AF_INET) {
+	/*
+	 * Users report that to->sa_family can be AF_INET6 too,
+	 * if "to" was acquired by recv_from_to(). IOW: recv_from_to()
+	 * was seen showing IPv6 "from" even when the destination
+	 * of received packet (our local address) was IPv4.
+	 */
+	if (/* to->sa_family == AF_INET && */ from->sa_family == AF_INET) {
 		struct in_pktinfo *pktptr;
 		cmsgptr->cmsg_level = IPPROTO_IP;
 		cmsgptr->cmsg_type = IP_PKTINFO;
@@ -96,7 +96,7 @@ send_to_from(int fd, void *buf, size_t len, int flags,
 		pktptr->ipi_spec_dst = ((struct sockaddr_in*)from)->sin_addr;
 	}
 # if ENABLE_FEATURE_IPV6 && defined(IPV6_PKTINFO)
-	else if (to->sa_family == AF_INET6 && from->sa_family == AF_INET6) {
+	else if (/* to->sa_family == AF_INET6 && */ from->sa_family == AF_INET6) {
 		struct in6_pktinfo *pktptr;
 		cmsgptr->cmsg_level = IPPROTO_IPV6;
 		cmsgptr->cmsg_type = IPV6_PKTINFO;
@@ -157,11 +157,9 @@ recv_from_to(int fd, void *buf, size_t len, int flags,
 	/* Here we try to retrieve destination IP and memorize it */
 	for (cmsgptr = CMSG_FIRSTHDR(&msg);
 			cmsgptr != NULL;
-			cmsgptr = CMSG_NXTHDR(&msg, cmsgptr)
-	) {
+			cmsgptr = CMSG_NXTHDR(&msg, cmsgptr)) {
 		if (cmsgptr->cmsg_level == IPPROTO_IP
-		 && cmsgptr->cmsg_type == IP_PKTINFO
-		) {
+		 && cmsgptr->cmsg_type == IP_PKTINFO) {
 			const int IPI_ADDR_OFF = offsetof(struct in_pktinfo, ipi_addr);
 			to->sa_family = AF_INET;
 			/*# define pktinfo(cmsgptr) ( (struct in_pktinfo*)(CMSG_DATA(cmsgptr)) )*/
@@ -172,11 +170,7 @@ recv_from_to(int fd, void *buf, size_t len, int flags,
 		}
 # if ENABLE_FEATURE_IPV6 && defined(IPV6_PKTINFO)
 		if (cmsgptr->cmsg_level == IPPROTO_IPV6
-		 && (cmsgptr->cmsg_type == IPV6_PKTINFO
-#if defined(IPV6_2292PKTINFO) && defined(IPV6_RECVPKTINFO)
-            		 || cmsgptr->cmsg_type == IPV6_2292PKTINFO
-#endif
-		)) {
+		 && cmsgptr->cmsg_type == IPV6_PKTINFO) {
 			const int IPI6_ADDR_OFF = offsetof(struct in6_pktinfo, ipi6_addr);
 			const int IPI6_IFINDEX_OFF = offsetof(struct in6_pktinfo, ipi6_ifindex);
 			to->sa_family = AF_INET6;

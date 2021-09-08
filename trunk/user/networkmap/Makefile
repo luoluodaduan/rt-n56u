@@ -6,6 +6,7 @@ OBJS = function.o networkmap.o
 
 CFLAGS += -Wall -I. -I$(SHDIR) -I$(SHDIR)/include
 CFLAGS += -s -DNO_PARALLEL
+#CFLAGS += -DDEBUG -DDEBUG_MORE
 LDFLAGS += -L$(SHDIR) -lshared
 
 CFLAGS += -ffunction-sections -fdata-sections -fvisibility=hidden

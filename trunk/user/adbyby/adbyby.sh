@@ -31,8 +31,9 @@ chmod 755 "/etc/storage/adbyby_adblack.sh"
 fi
 if [ ! -f "/etc/storage/adbyby_rules.sh" ] ; then
 cat > /etc/storage/adbyby_rules.sh << EOF
-! Adbyby 自定义过滤规则
-! 规则请参考 https://help.eyeo.com/en/adblockplus/how-to-write-filters
+! Adbyby 自定义过滤规则 参考以下
+! https://blog.csdn.net/weixin_40747900/article/details/104328954
+! https://blog.csdn.net/qq_36450004/article/details/105660153
 EOF
 chmod 755 "/etc/storage/adbyby_rules.sh"
 fi
@@ -56,13 +57,13 @@ adbybyrules_road_xj=`nvram get adbybyrules_road_x$j`
 if [ $adbybyrules_road_xj -ne 0 ]; then
 logger -t "adbyby" "正在下载合并$adbybyrules_xj"
 curl -k -s -o /tmp/adbyby/user1.txt --connect-timeout 8 --retry 3 $adbybyrules_xj
-grep -E '^(@@\||\||[[:alnum:]]|\/)' /tmp/adbyby/user1.txt | grep -v -E '#@#|#\?#' | sort -u | grep -v "^$" >> /tmp/adbyby/user2.txt
+grep -E '^(@@\||\||[[:alnum:]]|\/)' /tmp/adbyby/user1.txt | grep -v -E '#@#|#\?#|#\$#|abp-|\$ping|,ping|\$websocket|,websocket|\$webrtc|,webrtc|\$elemhide|,elemhide|\$generic|,generic|csp=|rewrite=' | sort -u | grep -v "^$" >> /tmp/adbyby/user2.txt
 rm -f /tmp/adbyby/user1.txt
 fi
 done
 fi
-grep -E '^(@@\||\||[[:alnum:]]|\/)' /etc/storage/adbyby_rules.sh | grep -v -E '#@#|#\?#' | sort -u | grep -v "^$" >> /tmp/adbyby/user2.txt
-grep -E '^(@@\||\||[[:alnum:]]|\/)' /tmp/adbyby/user2.txt | grep -v -E '#@#|#\?#' | sort -u | grep -v "^$" > /tmp/adbyby/data/lazy.txt
+grep -E '^(@@\||\||[[:alnum:]]|\/)' /etc/storage/adbyby_rules.sh | grep -v -E '#@#|#\?#|#\$#|abp-|\$ping|,ping|\$websocket|,websocket|\$webrtc|,webrtc|\$elemhide|,elemhide|\$generic|,generic|csp=|rewrite=' | sort -u | grep -v "^$" >> /tmp/adbyby/user2.txt
+grep -E '^(@@\||\||[[:alnum:]]|\/)' /tmp/adbyby/user2.txt | grep -v -E '#@#|#\?#|#\$#|abp-|\$ping|,ping|\$websocket|,websocket|\$webrtc|,webrtc|\$elemhide|,elemhide|\$generic|,generic|csp=|rewrite=' | sort -u | grep -v "^$" > /tmp/adbyby/data/lazy.txt
 rm -f /tmp/adbyby/user2.txt
 nvram set adbyby_user=`cat /tmp/adbyby/data/lazy.txt | wc -l`
 /tmp/adbyby/adbyby >/dev/null 2>&1 &

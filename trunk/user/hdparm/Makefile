@@ -6,7 +6,7 @@ DESTDIR =
 # usable for embedded devices
 HDPARM_MINI = 1
 
-binprefix = 
+binprefix =
 manprefix = /usr
 exec_prefix = $(binprefix)/
 sbindir = $(exec_prefix)sbin
@@ -41,17 +41,17 @@ all:
 hdparm: hdparm.h sgio.h $(OBJS)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o hdparm $(OBJS)
 
-hdparm.o:	hdparm.h sgio.h
+hdparm.o: hdparm.h sgio.h
 
-identify.o:	hdparm.h
+identify.o: hdparm.h
 
-dvdspeed.o:     dvdspeed.c
+dvdspeed.o: dvdspeed.c
 
 sgio.o: sgio.c sgio.h hdparm.h
 
 fwdownload.o: fwdownload.c sgio.h hdparm.h
 
-apt.o:		apt.c
+apt.o: apt.c
 
 install: all hdparm.8
 	if [ ! -z $(DESTDIR) ]; then $(INSTALL_DIR) $(DESTDIR) ; fi
