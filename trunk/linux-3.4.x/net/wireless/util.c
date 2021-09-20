@@ -174,18 +174,26 @@ int cfg80211_validate_key_settings(struct cfg80211_registered_device *rdev,
 	if (pairwise && !mac_addr)
 		return -EINVAL;
 
-	/*
-	 * Disallow pairwise keys with non-zero index unless it's WEP
-	 * or a vendor specific cipher (because current deployments use
-	 * pairwise WEP keys with non-zero indices and for vendor specific
-	 * ciphers this should be validated in the driver or hardware level
-	 * - but 802.11i clearly specifies to use zero)
-	 */
-	if (pairwise && key_idx &&
-	    ((params->cipher == WLAN_CIPHER_SUITE_TKIP) ||
-	     (params->cipher == WLAN_CIPHER_SUITE_CCMP) ||
-	     (params->cipher == WLAN_CIPHER_SUITE_AES_CMAC)))
-		return -EINVAL;
+	switch (params->cipher) {
+	case WLAN_CIPHER_SUITE_TKIP:
+	case WLAN_CIPHER_SUITE_CCMP:
+		/* Disallow pairwise keys with non-zero index unless it's WEP
+		 * or a vendor specific cipher (because current deployments use
+		 * pairwise WEP keys with non-zero indices and for vendor
+		 * specific ciphers this should be validated in the driver or
+		 * hardware level - but 802.11i clearly specifies to use zero)
+		 */
+		if (pairwise && key_idx)
+			return -EINVAL;
+		break;
+	case WLAN_CIPHER_SUITE_AES_CMAC:
+		/* Disallow BIP (group-only) cipher as pairwise cipher */
+		if (pairwise)
+			return -EINVAL;
+		break;
+	default:
+		break;
+	}
 
 	switch (params->cipher) {
 	case WLAN_CIPHER_SUITE_WEP40:
@@ -307,7 +315,7 @@ unsigned int ieee80211_get_mesh_hdrlen(struct ieee80211s_hdr *meshhdr)
 EXPORT_SYMBOL(ieee80211_get_mesh_hdrlen);
 
 static int __ieee80211_data_to_8023(struct sk_buff *skb, const u8 *addr,
-	enum nl80211_iftype iftype, bool is_amsdu)
+				    enum nl80211_iftype iftype, bool is_amsdu)
 {
 	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *) skb->data;
 	u16 hdrlen, ethertype;
@@ -401,8 +409,8 @@ static int __ieee80211_data_to_8023(struct sk_buff *skb, const u8 *addr,
 	ethertype = (payload[6] << 8) | payload[7];
 
 	if (likely((!is_amsdu && compare_ether_addr(payload, rfc1042_header) == 0 &&
-		ethertype != ETH_P_AARP && ethertype != ETH_P_IPX) ||
-		compare_ether_addr(payload, bridge_tunnel_header) == 0)) {
+		    ethertype != ETH_P_AARP && ethertype != ETH_P_IPX) ||
+		   compare_ether_addr(payload, bridge_tunnel_header) == 0)) {
 		/* remove RFC1042 or Bridge-Tunnel encapsulation and
 		 * replace EtherType */
 		skb_pull(skb, hdrlen + 6);
@@ -423,7 +431,7 @@ static int __ieee80211_data_to_8023(struct sk_buff *skb, const u8 *addr,
 }
 
 int ieee80211_data_to_8023(struct sk_buff *skb, const u8 *addr,
-	enum nl80211_iftype iftype)
+			   enum nl80211_iftype iftype)
 {
 	return __ieee80211_data_to_8023(skb, addr, iftype, false);
 }
@@ -836,6 +844,9 @@ int cfg80211_change_iface(struct cfg80211_registered_device *rdev,
 			break;
 		case NL80211_IFTYPE_MESH_POINT:
 			/* mesh should be handled? */
+			break;
+		case NL80211_IFTYPE_OCB:
+			cfg80211_leave_ocb(rdev, dev);
 			break;
 		default:
 			break;

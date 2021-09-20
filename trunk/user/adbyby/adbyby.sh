@@ -57,13 +57,13 @@ adbybyrules_road_xj=`nvram get adbybyrules_road_x$j`
 if [ $adbybyrules_road_xj -ne 0 ]; then
 logger -t "adbyby" "正在下载合并$adbybyrules_xj"
 curl -k -s -o /tmp/adbyby/user1.txt --connect-timeout 8 --retry 3 $adbybyrules_xj
-grep -E '^(@@\||\||[[:alnum:]]|\/)' /tmp/adbyby/user1.txt | grep -v -E '#@#|#\?#|#\$#|abp-|\$ping|,ping|\$websocket|,websocket|\$webrtc|,webrtc|\$elemhide|,elemhide|\$generic|,generic|csp=|rewrite=' | sort -u | grep -v "^$" >> /tmp/adbyby/user2.txt
+grep -E '^(@@\||\||[[:alnum:]]|\/|\.)' /tmp/adbyby/user1.txt | grep -v -E '#@#|#\?#|#\$#|abp-|\$ping|,ping|\$websocket|,websocket|\$webrtc|,webrtc|\$elemhide|,elemhide|\$generic|,generic|\$important|,important|\$object-subrequest|,object-subrequest|csp=|rewrite=' | sort -u | grep -v "^$" >> /tmp/adbyby/user2.txt
 rm -f /tmp/adbyby/user1.txt
 fi
 done
 fi
-grep -E '^(@@\||\||[[:alnum:]]|\/)' /etc/storage/adbyby_rules.sh | grep -v -E '#@#|#\?#|#\$#|abp-|\$ping|,ping|\$websocket|,websocket|\$webrtc|,webrtc|\$elemhide|,elemhide|\$generic|,generic|csp=|rewrite=' | sort -u | grep -v "^$" >> /tmp/adbyby/user2.txt
-grep -E '^(@@\||\||[[:alnum:]]|\/)' /tmp/adbyby/user2.txt | grep -v -E '#@#|#\?#|#\$#|abp-|\$ping|,ping|\$websocket|,websocket|\$webrtc|,webrtc|\$elemhide|,elemhide|\$generic|,generic|csp=|rewrite=' | sort -u | grep -v "^$" > /tmp/adbyby/data/lazy.txt
+grep -E '^(@@\||\||[[:alnum:]]|\/|\.)' /etc/storage/adbyby_rules.sh | grep -v -E '#@#|#\?#|#\$#|abp-|\$ping|,ping|\$websocket|,websocket|\$webrtc|,webrtc|\$elemhide|,elemhide|\$generic|,generic|\$important|,important|\$object-subrequest|,object-subrequest|csp=|rewrite=' | sort -u | grep -v "^$" >> /tmp/adbyby/user2.txt
+grep -E '^(@@\||\||[[:alnum:]]|\/|\.)' /tmp/adbyby/user2.txt | grep -v -E '#@#|#\?#|#\$#|abp-|\$ping|,ping|\$websocket|,websocket|\$webrtc|,webrtc|\$elemhide|,elemhide|\$generic|,generic|\$important|,important|\$object-subrequest|,object-subrequest|csp=|rewrite=' | sort -u | grep -v "^$" > /tmp/adbyby/data/lazy.txt
 rm -f /tmp/adbyby/user2.txt
 nvram set adbyby_user=`cat /tmp/adbyby/data/lazy.txt | wc -l`
 /tmp/adbyby/adbyby >/dev/null 2>&1 &
