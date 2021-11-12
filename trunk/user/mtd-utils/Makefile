@@ -1,4 +1,4 @@
-SRC_NAME=mtd-utils-2.0.2
+SRC_NAME=mtd-utils-2.1.3
 
 THISDIR = $(shell pwd)
 
@@ -19,14 +19,18 @@ config_test:
 
 configure:
 	( cd $(SRC_NAME) ; \
+	autoreconf -fvi ; \
 	./configure \
 		--prefix= \
 		--enable-static \
 		--disable-shared \
 		--disable-tests \
+		--disable-install-tests \
 		--without-jffs \
 		--without-xattr \
 		--without-ubifs \
+		--without-zstd \
+		--without-crypto \
 		--without-lzo \
 		--host=$(HOST_TARGET) \
 		--build=$(HOST_BUILD) ; \
