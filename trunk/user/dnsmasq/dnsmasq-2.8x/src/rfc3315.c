@@ -36,9 +36,9 @@ struct state {
 #endif
 };
 
-static int dhcp6_maybe_relay(struct state *state, void *inbuff, size_t sz, 
+static int dhcp6_maybe_relay(struct state *state, unsigned char *inbuff, size_t sz, 
 			     struct in6_addr *client_addr, int is_unicast, time_t now);
-static int dhcp6_no_relay(struct state *state, int msg_type, void *inbuff, size_t sz, int is_unicast, time_t now);
+static int dhcp6_no_relay(struct state *state, int msg_type, unsigned char *inbuff, size_t sz, int is_unicast, time_t now);
 static void log6_opts(int nest, unsigned int xid, void *start_opts, void *end_opts);
 static void log6_packet(struct state *state, char *type, struct in6_addr *addr, char *string);
 static void log6_quiet(struct state *state, char *type, struct in6_addr *addr, char *string);
@@ -55,6 +55,8 @@ static struct prefix_class *prefix_class_from_context(struct dhcp_context *conte
 static void mark_context_used(struct state *state, struct in6_addr *addr);
 static void mark_config_used(struct dhcp_context *context, struct in6_addr *addr);
 static int check_address(struct state *state, struct in6_addr *addr);
+static int config_valid(struct dhcp_config *config, struct dhcp_context *context, struct in6_addr *addr, struct state *state);
+static int config_implies(struct dhcp_config *config, struct dhcp_context *context, struct in6_addr *addr);
 static void add_address(struct state *state, struct dhcp_context *context, unsigned int lease_time, void *ia_option, 
 			unsigned int *min_time, struct in6_addr *addr, time_t now);
 static void update_leases(struct state *state, struct dhcp_context *context, struct in6_addr *addr, unsigned int lease_time, time_t now);
@@ -108,12 +110,12 @@ unsigned short dhcp6_reply(struct dhcp_context *context, int interface, char *if
 }
 
 /* This cost me blood to write, it will probably cost you blood to understand - srk. */
-static int dhcp6_maybe_relay(struct state *state, void *inbuff, size_t sz, 
+static int dhcp6_maybe_relay(struct state *state, unsigned char *inbuff, size_t sz, 
 			     struct in6_addr *client_addr, int is_unicast, time_t now)
 {
   void *end = inbuff + sz;
   void *opts = inbuff + 34;
-  int msg_type = *((unsigned char *)inbuff);
+  int msg_type = *inbuff;
   unsigned char *outmsgtypep;
   void *opt;
   struct dhcp_vendor *vendor;
@@ -243,15 +245,15 @@ static int dhcp6_maybe_relay(struct state *state, void *inbuff, size_t sz,
   return 1;
 }
 
-static int dhcp6_no_relay(struct state *state, int msg_type, void *inbuff, size_t sz, int is_unicast, time_t now)
+static int dhcp6_no_relay(struct state *state, int msg_type, unsigned char *inbuff, size_t sz, int is_unicast, time_t now)
 {
   void *opt;
-  int i, o, o1, start_opts;
+  int i, o, o1, start_opts, start_msg;
   struct dhcp_opt *opt_cfg;
   struct dhcp_netid *tagif;
   struct dhcp_config *config = NULL;
   struct dhcp_netid known_id, iface_id, v6_id;
-  unsigned char *outmsgtypep;
+  unsigned char outmsgtype;
   struct dhcp_vendor *vendor;
   struct dhcp_context *context_tmp;
   struct dhcp_mac *mac_opt;
@@ -287,12 +289,13 @@ static int dhcp6_no_relay(struct state *state, int msg_type, void *inbuff, size_
   v6_id.next = state->tags;
   state->tags = &v6_id;
 
-  /* copy over transaction-id, and save pointer to message type */
-  if (!(outmsgtypep = put_opt6(inbuff, 4)))
+  start_msg = save_counter(-1);
+  /* copy over transaction-id */
+  if (!put_opt6(inbuff, 4))
     return 0;
   start_opts = save_counter(-1);
-  state->xid = outmsgtypep[3] | outmsgtypep[2] << 8 | outmsgtypep[1] << 16;
-   
+  state->xid = inbuff[3] | inbuff[2] << 8 | inbuff[1] << 16;
+    
   /* We're going to be linking tags from all context we use. 
      mark them as unused so we don't link one twice and break the list */
   for (context_tmp = state->context; context_tmp; context_tmp = context_tmp->current)
@@ -338,7 +341,7 @@ static int dhcp6_no_relay(struct state *state, int msg_type, void *inbuff, size_
       (msg_type == DHCP6REQUEST || msg_type == DHCP6RENEW || msg_type == DHCP6RELEASE || msg_type == DHCP6DECLINE))
     
     {  
-      *outmsgtypep = DHCP6REPLY;
+      outmsgtype = DHCP6REPLY;
       o1 = new_opt6(OPTION6_STATUS_CODE);
       put_opt6_short(DHCP6USEMULTI);
       put_opt6_string("Use multicast");
@@ -490,7 +493,8 @@ static int dhcp6_no_relay(struct state *state, int msg_type, void *inbuff, size_
   
   if (state->clid)
     {
-      config = find_config(daemon->dhcp_conf, state->context, state->clid, state->clid_len, state->mac, state->mac_len, state->mac_type, NULL);
+      config = find_config(daemon->dhcp_conf, state->context, state->clid, state->clid_len,
+			    state->mac, state->mac_len, state->mac_type, NULL, run_tag_if(state->tags));
       
       if (have_config(config, CONFIG_NAME))
 	{
@@ -515,7 +519,7 @@ static int dhcp6_no_relay(struct state *state, int msg_type, void *inbuff, size_
 		  /* Search again now we have a hostname. 
 		     Only accept configs without CLID here, (it won't match)
 		     to avoid impersonation by name. */
-		  struct dhcp_config *new = find_config(daemon->dhcp_conf, state->context, NULL, 0, NULL, 0, 0, state->hostname);
+		  struct dhcp_config *new = find_config(daemon->dhcp_conf, state->context, NULL, 0, NULL, 0, 0, state->hostname, run_tag_if(state->tags));
 		  if (new && !have_config(new, CONFIG_CLID) && !new->hwaddr)
 		    config = new;
 		}
@@ -566,7 +570,8 @@ static int dhcp6_no_relay(struct state *state, int msg_type, void *inbuff, size_
 	ignore = 1;
     }
   else if (state->clid &&
-	   find_config(daemon->dhcp_conf, NULL, state->clid, state->clid_len, state->mac, state->mac_len, state->mac_type, NULL))
+	   find_config(daemon->dhcp_conf, NULL, state->clid, state->clid_len,
+		       state->mac, state->mac_len, state->mac_type, NULL, run_tag_if(state->tags)))
     {
       known_id.net = "known-othernet";
       known_id.next = state->tags;
@@ -631,16 +636,16 @@ static int dhcp6_no_relay(struct state *state, int msg_type, void *inbuff, size_
       
     case DHCP6SOLICIT:
       {
-      	int address_assigned = 0;
+	int address_assigned = 0, ia_invalid = 0;
 	/* tags without all prefix-class tags */
 	struct dhcp_netid *solicit_tags;
 	struct dhcp_context *c;
 	
-	*outmsgtypep = DHCP6ADVERTISE;
+	outmsgtype = DHCP6ADVERTISE;
 	
 	if (opt6_find(state->packet_options, state->end, OPTION6_RAPID_COMMIT, 0))
 	  {
-	    *outmsgtypep = DHCP6REPLY;
+	    outmsgtype = DHCP6REPLY;
 	    state->lease_allocate = 1;
 	    o = new_opt6(OPTION6_RAPID_COMMIT);
 	    end_opt6(o);
@@ -750,7 +755,7 @@ static int dhcp6_no_relay(struct state *state, int msg_type, void *inbuff, size_
 		    /* If the client asks for an address on the same network as a configured address, 
 		       offer the configured address instead, to make moving to newly-configured
 		       addresses automatic. */
-		    if (!(c->flags & CONTEXT_CONF_USED) && config_valid(config, c, &addr) && check_address(state, &addr))
+		    if (!(c->flags & CONTEXT_CONF_USED) && config_valid(config, c, &addr, state))
 		      {
 			req_addr = addr;
 			mark_config_used(c, &addr);
@@ -772,14 +777,15 @@ static int dhcp6_no_relay(struct state *state, int msg_type, void *inbuff, size_
 		    get_context_tag(state, c);
 		    address_assigned = 1;
 		  }
+		else
+		  ia_invalid++;
 	      }
 	    
 	    /* Suggest configured address(es) */
 	    for (c = state->context; c; c = c->current) 
 	      if (!(c->flags & CONTEXT_CONF_USED) &&
 		  match_netid(c->filter, solicit_tags, plain_range) &&
-		  config_valid(config, c, &addr) && 
-		  check_address(state, &addr))
+		  config_valid(config, c, &addr, state))
 		{
 		  mark_config_used(state->context, &addr);
 		  if (have_config(config, CONFIG_TIME))
@@ -869,11 +875,26 @@ static int dhcp6_no_relay(struct state *state, int msg_type, void *inbuff, size_
 	    tagif = add_options(state, 0);
 	  }
 	else
-	  { 
+	  {
+	    char *errmsg;
 	    /* no address, return error */
 	    o1 = new_opt6(OPTION6_STATUS_CODE);
-	    put_opt6_short(DHCP6NOADDRS);
-	    put_opt6_string(_("no addresses available"));
+	    if (state->lease_allocate && ia_invalid)
+	      {
+		/* RFC 8415, Section 18.3.2:
+		   If any of the prefixes of the included addresses are not
+		   appropriate for the link to which the client is connected,
+		   the server MUST return the IA to the client with a Status
+		   Code option with the value NotOnLink. */
+		put_opt6_short(DHCP6NOTONLINK);
+		errmsg = _("not on link");
+	      }
+	    else
+	      {
+		put_opt6_short(DHCP6NOADDRS);
+		errmsg = _("no addresses available");
+	      }
+	    put_opt6_string(errmsg);
 	    end_opt6(o1);
 
 	    /* Some clients will ask repeatedly when we're not giving
@@ -882,7 +903,7 @@ static int dhcp6_no_relay(struct state *state, int msg_type, void *inbuff, size_
 	    for (c = state->context; c; c = c->current)
 	      if (!(c->flags & CONTEXT_RA_STATELESS))
 		{
-		  log6_packet(state, state->lease_allocate ? "DHCPREPLY" : "DHCPADVERTISE", NULL, _("no addresses available"));
+		  log6_packet(state, state->lease_allocate ? "DHCPREPLY" : "DHCPADVERTISE", NULL, errmsg);
 		  break;
 		}
 	  }
@@ -896,7 +917,7 @@ static int dhcp6_no_relay(struct state *state, int msg_type, void *inbuff, size_
 	int start = save_counter(-1);
 
 	/* set reply message type */
-	*outmsgtypep = DHCP6REPLY;
+	outmsgtype = DHCP6REPLY;
 	state->lease_allocate = 1;
 
 	log6_quiet(state, "DHCPREQUEST", NULL, ignore ? _("ignored") : NULL);
@@ -918,7 +939,7 @@ static int dhcp6_no_relay(struct state *state, int msg_type, void *inbuff, size_
 		 /* If we get a request with an IA_*A without addresses, treat it exactly like
 		    a SOLICT with rapid commit set. */
 		 save_counter(start);
-		 goto request_no_address; 
+		 goto request_no_address;
 	       }
 
 	    o = build_ia(state, &t1cntr);
@@ -928,14 +949,13 @@ static int dhcp6_no_relay(struct state *state, int msg_type, void *inbuff, size_
 		struct in6_addr req_addr;
 		struct dhcp_context *dynamic, *c;
 		unsigned int lease_time;
-		struct in6_addr addr;
 		int config_ok = 0;
 
 		/* align. */
 		memcpy(&req_addr, opt6_ptr(ia_option, 0), IN6ADDRSZ);
 		
 		if ((c = address6_valid(state->context, &req_addr, tagif, 1)))
-		  config_ok = config_valid(config, c, &addr) && IN6_ARE_ADDR_EQUAL(&addr, &req_addr);
+		  config_ok = config_implies(config, c, &req_addr);
 		
 		if ((dynamic = address6_available(state->context, &req_addr, tagif, 1)) || c)
 		  {
@@ -949,11 +969,11 @@ static int dhcp6_no_relay(struct state *state, int msg_type, void *inbuff, size_
 		      }
 		    else if (!check_address(state, &req_addr))
 		      {
-			/* Address leased to another DUID/IAID */
-			o1 = new_opt6(OPTION6_STATUS_CODE);
-			put_opt6_short(DHCP6UNSPEC);
-			put_opt6_string(_("address in use"));
-			end_opt6(o1);
+			/* Address leased to another DUID/IAID.
+			   Find another address for the client, treat it exactly like
+			   a SOLICT with rapid commit set. */
+			save_counter(start);
+			goto request_no_address;
 		      } 
 		    else 
 		      {
@@ -1013,7 +1033,7 @@ static int dhcp6_no_relay(struct state *state, int msg_type, void *inbuff, size_
     case DHCP6RENEW:
       {
 	/* set reply message type */
-	*outmsgtypep = DHCP6REPLY;
+	outmsgtype = DHCP6REPLY;
 	
 	log6_quiet(state, "DHCPRENEW", NULL, NULL);
 
@@ -1065,12 +1085,11 @@ static int dhcp6_no_relay(struct state *state, int msg_type, void *inbuff, size_
 		if ((this_context = address6_available(state->context, &req_addr, tagif, 1)) ||
 		    (this_context = address6_valid(state->context, &req_addr, tagif, 1)))
 		  {
-		    struct in6_addr addr;
 		    unsigned int lease_time;
 
 		    get_context_tag(state, this_context);
 		    
-		    if (config_valid(config, this_context, &addr) && IN6_ARE_ADDR_EQUAL(&addr, &req_addr) && have_config(config, CONFIG_TIME))
+		    if (config_implies(config, this_context, &req_addr) && have_config(config, CONFIG_TIME))
 		      lease_time = config->lease_time;
 		    else 
 		      lease_time = this_context->lease_time;
@@ -1126,7 +1145,7 @@ static int dhcp6_no_relay(struct state *state, int msg_type, void *inbuff, size_
 	int good_addr = 0;
 
 	/* set reply message type */
-	*outmsgtypep = DHCP6REPLY;
+	outmsgtype = DHCP6REPLY;
 	
 	log6_quiet(state, "DHCPCONFIRM", NULL, NULL);
 	
@@ -1190,7 +1209,7 @@ static int dhcp6_no_relay(struct state *state, int msg_type, void *inbuff, size_
 	log6_quiet(state, "DHCPINFORMATION-REQUEST", NULL, ignore ? _("ignored") : state->hostname);
 	if (ignore)
 	  return 0;
-	*outmsgtypep = DHCP6REPLY;
+	outmsgtype = DHCP6REPLY;
 	tagif = add_options(state, 1);
 	break;
       }
@@ -1199,7 +1218,7 @@ static int dhcp6_no_relay(struct state *state, int msg_type, void *inbuff, size_
     case DHCP6RELEASE:
       {
 	/* set reply message type */
-	*outmsgtypep = DHCP6REPLY;
+	outmsgtype = DHCP6REPLY;
 
 	log6_quiet(state, "DHCPRELEASE", NULL, NULL);
 
@@ -1264,7 +1283,7 @@ static int dhcp6_no_relay(struct state *state, int msg_type, void *inbuff, size_
     case DHCP6DECLINE:
       {
 	/* set reply message type */
-	*outmsgtypep = DHCP6REPLY;
+	outmsgtype = DHCP6REPLY;
 	
 	log6_quiet(state, "DHCPDECLINE", NULL, NULL);
 
@@ -1343,7 +1362,12 @@ static int dhcp6_no_relay(struct state *state, int msg_type, void *inbuff, size_
       }
 
     }
-  
+
+  /* Fill in the message type. Note that we store the offset,
+     not a direct pointer, since the packet memory may have been 
+     reallocated. */
+  ((unsigned char *)(daemon->outpacket.iov_base))[start_msg] = outmsgtype;
+
   log_tags(tagif, state->xid);
   log6_opts(0, state->xid, daemon->outpacket.iov_base + start_opts, daemon->outpacket.iov_base + save_counter(-1));
   
@@ -1790,6 +1814,76 @@ static int check_address(struct state *state, struct in6_addr *addr)
     return 0;
 
   return 1;
+}
+
+/* return true of *addr could have been generated from config. */
+static int config_implies(struct dhcp_config *config, struct dhcp_context *context, struct in6_addr *addr)
+{
+  int prefix;
+  struct in6_addr wild_addr;
+  struct addrlist *addr_list;
+
+  if (!config || !(config->flags & CONFIG_ADDR6))
+    return 0;
+
+  for (addr_list = config->addr6; addr_list; addr_list = addr_list->next)
+    {
+      prefix = (addr_list->flags & ADDRLIST_PREFIX) ? addr_list->prefixlen : 128;
+      wild_addr = addr_list->addr.addr6;
+
+      if ((addr_list->flags & ADDRLIST_WILDCARD) && context->prefix == 64)
+	{
+	  wild_addr = context->start6;
+	  setaddr6part(&wild_addr, addr6part(&addr_list->addr.addr6));
+	}
+      else if (!is_same_net6(&context->start6, addr, context->prefix))
+	continue;
+
+      if (is_same_net6(&wild_addr, addr, prefix))
+	return 1;
+    }
+
+  return 0;
+}
+
+static int config_valid(struct dhcp_config *config, struct dhcp_context *context, struct in6_addr *addr, struct state *state)
+{
+  u64 addrpart, i, addresses;
+  struct addrlist *addr_list;
+
+  if (!config || !(config->flags & CONFIG_ADDR6))
+    return 0;
+
+  for (addr_list = config->addr6; addr_list; addr_list = addr_list->next)
+    {
+      addrpart = addr6part(&addr_list->addr.addr6);
+      addresses = 1;
+
+      if (addr_list->flags & ADDRLIST_PREFIX)
+	addresses = (u64)1<<(128-addr_list->prefixlen);
+
+      if ((addr_list->flags & ADDRLIST_WILDCARD))
+	{
+	  if (context->prefix != 64)
+	    continue;
+
+	  *addr = context->start6;
+	}
+      else if (is_same_net6(&context->start6, &addr_list->addr.addr6, context->prefix))
+	*addr = addr_list->addr.addr6;
+      else
+	continue;
+
+      for (i = 0 ; i < addresses; i++)
+	{
+	  setaddr6part(addr, addrpart+i);
+
+	  if (check_address(state, addr))
+	    return 1;
+	}
+    }
+
+  return 0;
 }
 
 

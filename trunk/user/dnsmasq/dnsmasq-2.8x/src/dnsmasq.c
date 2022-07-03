@@ -134,19 +134,17 @@ int main (int argc, char **argv)
     }
 #endif
   
-  /* Close any file descriptors we inherited apart from std{in|out|err} 
-     
-     Ensure that at least stdin, stdout and stderr (fd 0, 1, 2) exist,
+  /* Ensure that at least stdin, stdout and stderr (fd 0, 1, 2) exist,
      otherwise file descriptors we create can end up being 0, 1, or 2 
      and then get accidentally closed later when we make 0, 1, and 2 
      open to /dev/null. Normally we'll be started with 0, 1 and 2 open, 
      but it's not guaranteed. By opening /dev/null three times, we 
      ensure that we're not using those fds for real stuff. */
-  for (i = 0; i < max_fd; i++)
-    if (i != STDOUT_FILENO && i != STDERR_FILENO && i != STDIN_FILENO)
-      close(i);
-    else
-      open("/dev/null", O_RDWR); 
+  for (i = 0; i < 3; i++)
+    open("/dev/null", O_RDWR); 
+  
+  /* Close any file descriptors we inherited apart from std{in|out|err} */
+  close_fds(max_fd, -1, -1, -1);
 
 #ifndef HAVE_LINUX_NETWORK
 #  if !(defined(IP_RECVDSTADDR) && defined(IP_RECVIF) && defined(IP_SENDSRCADDR))
@@ -625,7 +623,14 @@ int main (int argc, char **argv)
   
       if (ent_pw && ent_pw->pw_uid != 0)
 	{     
-#if defined(HAVE_LINUX_NETWORK)	  
+#if defined(HAVE_LINUX_NETWORK)
+	  if (!hdr || !data)
+	    {
+	      /* Just failsafe for logic errors */
+	      send_event(err_pipe[1], EVENT_CAP_ERR, ENOMEM, NULL);
+	      _exit(0);
+	    }
+
 	  /* On linux, we keep CAP_NETADMIN (for ARP-injection) and
 	     CAP_NET_RAW (for icmp) if we're doing dhcp. If we have yet to bind 
 	     ports because of DAD, or we're doing it dynamically,
@@ -1581,6 +1586,7 @@ static int set_dns_listeners(time_t now)
 {
   struct serverfd *serverfdp;
   struct listener *listener;
+  struct randfd_list *rfl;
   int wait = 0, i;
   
 #ifdef HAVE_TFTP
@@ -1599,12 +1605,15 @@ static int set_dns_listeners(time_t now)
   
   for (serverfdp = daemon->sfds; serverfdp; serverfdp = serverfdp->next)
     poll_listen(serverfdp->fd, POLLIN);
-    
-  if (daemon->port != 0 && !daemon->osport)
-    for (i = 0; i < RANDOM_SOCKS; i++)
-      if (daemon->randomsocks[i].refcount != 0)
-	poll_listen(daemon->randomsocks[i].fd, POLLIN);
-	  
+
+  for (i = 0; i < RANDOM_SOCKS; i++)
+    if (daemon->randomsocks[i].refcount != 0)
+      poll_listen(daemon->randomsocks[i].fd, POLLIN);
+
+  /* Check overflow random sockets too. */
+  for (rfl = daemon->rfl_poll; rfl; rfl = rfl->next)
+    poll_listen(rfl->rfd->fd, POLLIN);
+
   for (listener = daemon->listeners; listener; listener = listener->next)
     {
       /* only listen for queries if we have resources */
@@ -1640,18 +1649,23 @@ static void check_dns_listeners(time_t now)
 {
   struct serverfd *serverfdp;
   struct listener *listener;
+  struct randfd_list *rfl;
   int i;
   int pipefd[2];
   
   for (serverfdp = daemon->sfds; serverfdp; serverfdp = serverfdp->next)
     if (poll_check(serverfdp->fd, POLLIN))
-      reply_query(serverfdp->fd, serverfdp->source_addr.sa.sa_family, now);
+      reply_query(serverfdp->fd, now);
   
-  if (daemon->port != 0 && !daemon->osport)
-    for (i = 0; i < RANDOM_SOCKS; i++)
-      if (daemon->randomsocks[i].refcount != 0 && 
-	  poll_check(daemon->randomsocks[i].fd, POLLIN))
-	reply_query(daemon->randomsocks[i].fd, daemon->randomsocks[i].family, now);
+  for (i = 0; i < RANDOM_SOCKS; i++)
+    if (daemon->randomsocks[i].refcount != 0 && 
+	poll_check(daemon->randomsocks[i].fd, POLLIN))
+      reply_query(daemon->randomsocks[i].fd, now);
+
+  /* Check overflow random sockets too. */
+  for (rfl = daemon->rfl_poll; rfl; rfl = rfl->next)
+    if (poll_check(rfl->rfd->fd, POLLIN))
+      reply_query(rfl->rfd->fd, now);
 
   /* Races. The child process can die before we read all of the data from the
      pipe, or vice versa. Therefore send tcp_pids to zero when we wait() the 
@@ -1731,7 +1745,8 @@ static void check_dns_listeners(time_t now)
 		    addr.addr4 = tcp_addr.in.sin_addr;
 		  
 		  for (iface = daemon->interfaces; iface; iface = iface->next)
-		    if (iface->index == if_index)
+		    if (iface->index == if_index &&
+		        iface->addr.sa.sa_family == tcp_addr.sa.sa_family)
 		      break;
 		  
 		  if (!iface && !loopback_exception(listener->tcpfd, tcp_addr.sa.sa_family, &addr, intr_name))

@@ -371,9 +371,11 @@ struct ds_config {
   struct ds_config *next;
 };
 
-#define ADDRLIST_LITERAL 1
-#define ADDRLIST_IPV6    2
-#define ADDRLIST_REVONLY 4
+#define ADDRLIST_LITERAL  1
+#define ADDRLIST_IPV6     2
+#define ADDRLIST_REVONLY  4
+#define ADDRLIST_PREFIX   8
+#define ADDRLIST_WILDCARD 16
 
 struct addrlist {
   union all_addr addr;
@@ -532,13 +534,31 @@ struct serverfd {
 };
 
 struct randfd {
+  struct server *serv;
   int fd;
-  unsigned short refcount, family;
+  unsigned short refcount; /* refcount == 0xffff means overflow record. */
 };
-  
+
+struct randfd_list {
+  struct randfd *rfd;
+  struct randfd_list *next;
+};
+
+/* contains domain specific set of servers.
+ * If domain is NULL, just normal servers. */
+struct server_domain {
+  char *domain;
+  struct server *last_server;
+  time_t forwardtime;
+  int forwardcount;
+  unsigned int flags; /* server.flags alternative */
+  struct server_domain *next;
+};
+
 struct server {
   union mysockaddr addr, source_addr;
   char interface[IF_NAMESIZE+1];
+  unsigned int ifindex; /* corresponding to interface, above */
   struct serverfd *sfd; 
   char *domain; /* set if this server only handles a domain. */ 
   int flags, tcpfd, edns_pktsz;
@@ -547,6 +567,7 @@ struct server {
 #ifdef HAVE_LOOP
   u32 uid;
 #endif
+  struct server_domain *serv_domain;
   struct server *next; 
 };
 
@@ -565,7 +586,8 @@ struct irec {
 };
 
 struct listener {
-  int fd, tcpfd, tftpfd, family;
+  int fd, tcpfd, tftpfd, used;
+  union mysockaddr addr;
   struct irec *iface; /* only sometimes valid for non-wildcard */
   struct listener *next;
 };
@@ -661,8 +683,7 @@ struct frec {
     struct frec_src *next;
   } frec_src;
   struct server *sentto; /* NULL means free */
-  struct randfd *rfd4;
-  struct randfd *rfd6;
+  struct randfd_list *rfds;
   unsigned short new_id;
   int forwardall, flags;
   time_t time;
@@ -771,8 +792,9 @@ struct dhcp_config {
   unsigned char *clid;   /* clientid */
   char *hostname, *domain;
   struct dhcp_netid_list *netid;
+  struct dhcp_netid *filter;
 #ifdef HAVE_DHCP6
-  struct in6_addr addr6;
+  struct addrlist *addr6;
 #endif
   struct in_addr addr;
   time_t decline_time;
@@ -794,7 +816,6 @@ struct dhcp_config {
 #define CONFIG_DECLINED       1024    /* address declined by client */
 #define CONFIG_BANK           2048    /* from dhcp hosts file */
 #define CONFIG_ADDR6          4096
-#define CONFIG_WILDCARD       8192
 #define CONFIG_ADDR6_HOSTS   16384    /* address added by from /etc/hosts */
 
 struct dhcp_opt {
@@ -1015,6 +1036,7 @@ extern struct daemon {
   struct iname *if_names, *if_addrs, *if_except, *dhcp_except, *auth_peers, *tftp_interfaces;
   struct bogus_addr *bogus_addr, *ignore_addr;
   struct server *servers;
+  struct server_domain *server_domains;
   struct ipsets *ipsets;
   int log_fac; /* log facility */
   char *log_file; /* optional log file */
@@ -1084,16 +1106,14 @@ extern struct daemon {
   struct serverfd *sfds;
   struct irec *interfaces;
   struct listener *listeners;
-  struct server *last_server;
-  time_t forwardtime;
-  int forwardcount;
   struct server *srv_save; /* Used for resend on DoD */
   size_t packet_len;       /*      "        "        */
-  struct randfd *rfd_save; /*      "        "        */
+  int    fd_save;          /*      "        "        */
   pid_t tcp_pids[MAX_PROCS];
   int tcp_pipes[MAX_PROCS];
   int pipe_to_parent;
   struct randfd randomsocks[RANDOM_SOCKS];
+  struct randfd_list *rfl_spare, *rfl_poll;
   int v6pktinfo; 
   struct addrlist *interface_addrs; /* list of all addresses/prefix lengths associated with all local interfaces */
   int log_id, log_display_id; /* ids of transactions for logging */
@@ -1261,7 +1281,7 @@ void safe_strncpy(char *dest, const char *src, size_t size);
 void safe_pipe(int *fd, int read_noblock);
 void *whine_malloc(size_t size);
 int sa_len(union mysockaddr *addr);
-int sockaddr_isequal(union mysockaddr *s1, union mysockaddr *s2);
+int sockaddr_isequal(const union mysockaddr *s1, const union mysockaddr *s2);
 int hostname_isequal(const char *a, const char *b);
 int hostname_issubdomain(char *a, char *b);
 time_t dnsmasq_time(void);
@@ -1281,6 +1301,7 @@ int expand_buf(struct iovec *iov, size_t size);
 char *print_mac(char *buff, unsigned char *mac, int len);
 int read_write(int fd, unsigned char *packet, int size, int rw);
 
+void close_fds(long max_fd, int spare1, int spare2, int spare3);
 int wildcard_match(const char* wildcard, const char* match);
 int wildcard_matchn(const char* wildcard, const char* match, int num);
 
@@ -1309,7 +1330,7 @@ char *parse_server(char *arg, union mysockaddr *addr,
 int option_read_dynfile(char *file, int flags);
 
 /* forward.c */
-void reply_query(int fd, int family, time_t now);
+void reply_query(int fd, time_t now);
 void receive_query(struct listener *listen, time_t now);
 unsigned char *tcp_request(int confd, time_t now,
 			   union mysockaddr *local_addr, struct in_addr netmask, int auth_dns);
@@ -1319,13 +1340,12 @@ int send_from(int fd, int nowild, char *packet, size_t len,
 	       union mysockaddr *to, union all_addr *source,
 	       unsigned int iface);
 void resend_query(void);
-struct randfd *allocate_rfd(int family);
-void free_rfd(struct randfd *rfd);
+int allocate_rfd(struct randfd_list **fdlp, struct server *serv);
+void free_rfds(struct randfd_list **fdlp);
 
 /* network.c */
 int indextoname(int fd, int index, char *name);
 int local_bind(int fd, union mysockaddr *addr, char *intname, unsigned int ifindex, int is_tcp);
-int random_sock(int family);
 void pre_allocate_sfds(void);
 int reload_servers(char *fname);
 void mark_servers(int flag);
@@ -1348,6 +1368,8 @@ int loopback_exception(int fd, int family, union all_addr *addr, char *name);
 int label_exception(int index, int family, union all_addr *addr);
 int fix_fd(int fd);
 int tcp_interface(int fd, int af);
+struct server_domain *server_domain_find_domain(const char *domain);
+struct server_domain *server_domain_new(struct server *serv);
 int set_ipv6pktinfo(int fd);
 #ifdef HAVE_DHCP6
 void join_multicast(int dienow);
@@ -1511,7 +1533,6 @@ void dhcp6_init(void);
 void dhcp6_packet(time_t now);
 struct dhcp_context *address6_allocate(struct dhcp_context *context,  unsigned char *clid, int clid_len, int temp_addr,
 				       int iaid, int serial, struct dhcp_netid *netids, int plain_range, struct in6_addr *ans);
-int config_valid(struct dhcp_config *config, struct dhcp_context *context, struct in6_addr *addr);
 struct dhcp_context *address6_available(struct dhcp_context *context, 
 					struct in6_addr *taddr,
 					struct dhcp_netid *netids,
@@ -1521,7 +1542,7 @@ struct dhcp_context *address6_valid(struct dhcp_context *context,
 				    struct dhcp_netid *netids,
 				    int plain_range);
 struct dhcp_config *config_find_by_address6(struct dhcp_config *configs, struct in6_addr *net, 
-					    int prefix, u64 addr);
+					    int prefix, struct in6_addr *addr);
 void make_duid(time_t now);
 void dhcp_construct_contexts(time_t now);
 void get_client_mac(struct in6_addr *client, int iface, unsigned char *mac, 
@@ -1560,7 +1581,8 @@ struct dhcp_config *find_config(struct dhcp_config *configs,
 				struct dhcp_context *context,
 				unsigned char *clid, int clid_len,
 				unsigned char *hwaddr, int hw_len, 
-				int hw_type, char *hostname);
+				int hw_type, char *hostname,
+				struct dhcp_netid *filter);
 int config_has_mac(struct dhcp_config *config, unsigned char *hwaddr, int len, int type);
 #ifdef HAVE_LINUX_NETWORK
 char *whichdevice(void);

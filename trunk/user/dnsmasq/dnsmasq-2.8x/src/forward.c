@@ -16,7 +16,7 @@
 
 #include "dnsmasq.h"
 
-static struct frec *lookup_frec(unsigned short id, int fd, int family, void *hash);
+static struct frec *lookup_frec(unsigned short id, int fd, void *hash);
 static struct frec *lookup_frec_by_sender(unsigned short id,
 					  union mysockaddr *addr,
 					  void *hash);
@@ -103,7 +103,8 @@ int send_from(int fd, int nowild, char *packet, size_t len,
 }
           
 static unsigned int search_servers(time_t now, union all_addr **addrpp, unsigned int qtype,
-				   char *qdomain, int *type, char **domain, int *norebind)
+				   char *qdomain, int *type, char **domain, int *norebind,
+				   struct server_domain **serv_domain)
 			      
 {
   /* If the query ends in the domain in one of our servers, set
@@ -116,6 +117,9 @@ static unsigned int search_servers(time_t now, union all_addr **addrpp, unsigned
   unsigned int flags = 0;
   static union all_addr zero;
   
+  if (serv_domain)
+    *serv_domain = NULL;
+
   for (serv = daemon->servers; serv; serv=serv->next)
     if (qtype == F_DNSSECOK && !(serv->flags & SERV_DO_DNSSEC))
       continue;
@@ -181,6 +185,8 @@ static unsigned int search_servers(time_t now, union all_addr **addrpp, unsigned
 		  {
 		    *type = serv->flags & (SERV_HAS_DOMAIN | SERV_USE_RESOLV | SERV_NO_REBIND | SERV_DO_DNSSEC);
 		    *domain = serv->domain;
+		    if (serv_domain)
+		      *serv_domain = serv->serv_domain;
 		    matchlen = domainlen;
 		    if (serv->flags & SERV_NO_ADDR)
 		      flags = F_NXDOMAIN;
@@ -237,6 +243,8 @@ static unsigned int search_servers(time_t now, union all_addr **addrpp, unsigned
       *type = 0; /* use normal servers for this domain */
       *domain = NULL;
     }
+  if (serv_domain && !*serv_domain)
+    *serv_domain = server_domain_find_domain(*domain);
   return  flags;
 }
 
@@ -251,6 +259,7 @@ static int forward_query(int udpfd, union mysockaddr *udpaddr,
   unsigned int flags = 0;
   unsigned int fwd_flags = 0;
   struct server *start = NULL;
+  struct server_domain *sd = NULL;
   void *hash = hash_questions(header, plen, daemon->namebuff);
 #ifdef HAVE_DNSSEC
   int do_dnssec = 0;
@@ -298,27 +307,18 @@ static int forward_query(int udpfd, union mysockaddr *udpaddr,
 	  forward->flags |= FREC_TEST_PKTSZ;
 	  if (find_pseudoheader(header, plen, NULL, &pheader, &is_sign, NULL) && !is_sign)
 	    PUTSHORT(SAFE_PKTSZ, pheader);
-	  
-	  if (forward->sentto->addr.sa.sa_family == AF_INET) 
-	    log_query(F_NOEXTRA | F_DNSSEC | F_IPV4, "retry", (union all_addr *)&forward->sentto->addr.in.sin_addr, "dnssec");
-	  else
-	    log_query(F_NOEXTRA | F_DNSSEC | F_IPV6, "retry", (union all_addr *)&forward->sentto->addr.in6.sin6_addr, "dnssec");
 
-  
-	  if (forward->sentto->sfd)
-	    fd = forward->sentto->sfd->fd;
-	  else
+	  if ((fd = allocate_rfd(&forward->rfds, forward->sentto)) != -1)
 	    {
-	      if (forward->sentto->addr.sa.sa_family == AF_INET6)
-		fd = forward->rfd6->fd;
+	      if (forward->sentto->addr.sa.sa_family == AF_INET) 
+		log_query(F_NOEXTRA | F_DNSSEC | F_IPV4, "retry", (struct all_addr *)&forward->sentto->addr.in.sin_addr, "dnssec");
 	      else
-		fd = forward->rfd4->fd;
+		log_query(F_NOEXTRA | F_DNSSEC | F_IPV6, "retry", (struct all_addr *)&forward->sentto->addr.in6.sin6_addr, "dnssec");
+	      
+	      while (retry_send(sendto(fd, (char *)header, plen, 0,
+				       &forward->sentto->addr.sa,
+				       sa_len(&forward->sentto->addr))));
 	    }
-	  
-	  while (retry_send(sendto(fd, (char *)header, plen, 0,
-				   &forward->sentto->addr.sa,
-				   sa_len(&forward->sentto->addr))));
-	  
 	  return 1;
 	}
 #endif
@@ -328,8 +328,10 @@ static int forward_query(int udpfd, union mysockaddr *udpaddr,
       forward->sentto->failed_queries++;
       if (!option_bool(OPT_ORDER))
 	{
+	  sd = forward->sentto->serv_domain;
 	  forward->forwardall = 1;
-	  daemon->last_server = NULL;
+	  if (sd)
+	    sd->last_server = NULL;
 	}
       type = forward->sentto->flags & SERV_TYPE;
 #ifdef HAVE_DNSSEC
@@ -377,7 +379,7 @@ static int forward_query(int udpfd, union mysockaddr *udpaddr,
 	}
 	
       if (gotname)
-	flags = search_servers(now, &addrp, gotname, daemon->namebuff, &type, &domain, &norebind);
+	flags = search_servers(now, &addrp, gotname, daemon->namebuff, &type, &domain, &norebind, &sd);
       
 #ifdef HAVE_DNSSEC
       do_dnssec = type & SERV_DO_DNSSEC;
@@ -419,18 +421,18 @@ static int forward_query(int udpfd, union mysockaddr *udpaddr,
 	     always try all the available servers,
 	     otherwise, use the one last known to work. */
 	  
-	  if (type == 0)
+	  if (sd)
 	    {
 	      if (option_bool(OPT_ORDER))
 		start = daemon->servers;
-	      else if (!(start = daemon->last_server) ||
-		       daemon->forwardcount++ > FORWARD_TEST ||
-		       difftime(now, daemon->forwardtime) > FORWARD_TIME)
+	      else if (!(start = sd->last_server) ||
+		       sd->forwardcount++ > FORWARD_TEST ||
+		       difftime(now, sd->forwardtime) > FORWARD_TIME)
 		{
 		  start = daemon->servers;
 		  forward->forwardall = 1;
-		  daemon->forwardcount = 0;
-		  daemon->forwardtime = now;
+		  sd->forwardcount = 0;
+		  sd->forwardtime = now;
 		}
 	    }
 	  else
@@ -494,49 +496,28 @@ static int forward_query(int udpfd, union mysockaddr *udpaddr,
       
       while (1)
 	{ 
+	  int fd;
+
 	  /* only send to servers dealing with our domain.
 	     domain may be NULL, in which case server->domain 
 	     must be NULL also. */
 	  
 	  if (type == (start->flags & SERV_TYPE) &&
 	      (type != SERV_HAS_DOMAIN || hostname_isequal(domain, start->domain)) &&
-	      !(start->flags & (SERV_LITERAL_ADDRESS | SERV_LOOP)))
+	      !(start->flags & (SERV_LITERAL_ADDRESS | SERV_LOOP)) &&
+	      ((fd = allocate_rfd(&forward->rfds, start)) != -1))
 	    {
-	      int fd;
-
-	      /* find server socket to use, may need to get random one. */
-	      if (start->sfd)
-		fd = start->sfd->fd;
-	      else 
-		{
-		  if (start->addr.sa.sa_family == AF_INET6)
-		    {
-		      if (!forward->rfd6 &&
-			  !(forward->rfd6 = allocate_rfd(AF_INET6)))
-			break;
-		      daemon->rfd_save = forward->rfd6;
-		      fd = forward->rfd6->fd;
-		    }
-		  else
-		    {
-		      if (!forward->rfd4 &&
-			  !(forward->rfd4 = allocate_rfd(AF_INET)))
-			break;
-		      daemon->rfd_save = forward->rfd4;
-		      fd = forward->rfd4->fd;
-		    }
 
 #ifdef HAVE_CONNTRACK
-		  /* Copy connection mark of incoming query to outgoing connection. */
-		  if (option_bool(OPT_CONNTRACK))
-		    {
-		      unsigned int mark;
-		      if (get_incoming_mark(&forward->frec_src.source, &forward->frec_src.dest, 0, &mark))
-			setsockopt(fd, SOL_SOCKET, SO_MARK, &mark, sizeof(unsigned int));
-		    }
+	      /* Copy connection mark of incoming query to outgoing connection. */
+	      if (option_bool(OPT_CONNTRACK))
+		{
+		  unsigned int mark;
+		  if (get_incoming_mark(&forward->frec_src.source, &forward->frec_src.dest, 0, &mark))
+		    setsockopt(fd, SOL_SOCKET, SO_MARK, &mark, sizeof(unsigned int));
+ 		}
 #endif
-		}
-	      
+
 #ifdef HAVE_DNSSEC
 	      if (option_bool(OPT_DNSSEC_VALID) && (forward->flags & FREC_ADDED_PHEADER))
 		{
@@ -569,7 +550,8 @@ static int forward_query(int udpfd, union mysockaddr *udpaddr,
 		  /* Keep info in case we want to re-send this packet */
 		  daemon->srv_save = start;
 		  daemon->packet_len = plen;
-		  
+		  daemon->fd_save = fd;
+
 		  if (!gotname)
 		    strcpy(daemon->namebuff, "query");
 		  if (start->addr.sa.sa_family == AF_INET)
@@ -585,7 +567,7 @@ static int forward_query(int udpfd, union mysockaddr *udpaddr,
 		    break;
 		  forward->forwardall++;
 		}
-	    } 
+	    }
 	  
 	  if (!(start = start->next))
  	    start = daemon->servers;
@@ -719,7 +701,7 @@ static size_t process_reply(struct dns_header *header, time_t now, struct server
   if (!(header->hb4 & HB4_RA) && rcode == NOERROR &&
       server && !(server->flags & SERV_WARNED_RECURSIVE))
     {
-      prettyprint_addr(&server->addr, daemon->namebuff);
+      (void)prettyprint_addr(&server->addr, daemon->namebuff);
       my_syslog(LOG_WARNING, _("nameserver %s refused to do a recursive query"), daemon->namebuff);
       if (!option_bool(OPT_LOG))
 	server->flags |= SERV_WARNED_RECURSIVE;
@@ -800,7 +782,7 @@ static size_t process_reply(struct dns_header *header, time_t now, struct server
 }
 
 /* sets new last_server */
-void reply_query(int fd, int family, time_t now)
+void reply_query(int fd, time_t now)
 {
   /* packet from peer server, extract data for cache, and send to
      original requester */
@@ -812,12 +794,13 @@ void reply_query(int fd, int family, time_t now)
   size_t nn;
   struct server *server;
   void *hash;
+  struct server_domain *sd;
 
   /* packet buffer overwritten */
   daemon->srv_save = NULL;
   
   /* Determine the address of the server replying  so that we can mark that as good */
-  if ((serveraddr.sa.sa_family = family) == AF_INET6)
+  if (serveraddr.sa.sa_family == AF_INET6)
     serveraddr.in6.sin6_flowinfo = 0;
   
   header = (struct dns_header *)daemon->packet;
@@ -832,16 +815,18 @@ void reply_query(int fd, int family, time_t now)
       break;
   
   if (!server)
+  {
     if (serveraddr.sa.sa_family == AF_INET ? (serveraddr.in.sin_addr.s_addr != INADDR_ANY && htonl(serveraddr.in.sin_addr.s_addr) != INADDR_LOOPBACK) : (memcmp(&serveraddr.in6.sin6_addr, &in6addr_any, sizeof(in6addr_any)) && memcmp(&serveraddr.in6.sin6_addr, &in6addr_loopback, sizeof(in6addr_loopback))))
-    return;
+      return;
+  }
 
   /* If sufficient time has elapsed, try and expand UDP buffer size again. */
-  if (difftime(now, server->pktsz_reduced) > UDP_TEST_TIME)
+  else if (difftime(now, server->pktsz_reduced) > UDP_TEST_TIME)
     server->edns_pktsz = daemon->edns_pktsz;
 
   hash = hash_questions(header, n, daemon->namebuff);
   
-  if (!(forward = lookup_frec(ntohs(header->id), fd, family, hash)))
+  if (!(forward = lookup_frec(ntohs(header->id), fd, hash)))
     return;
   
 #ifdef HAVE_DUMPFILE
@@ -893,32 +878,10 @@ void reply_query(int fd, int family, time_t now)
 		    (start->flags & SERV_DO_DNSSEC))
 		  break;
 	      }
-	    
-	  
-	  fd = -1;
 
-	  if (start->sfd)
-	    fd = start->sfd->fd;
-	  else
-	    {
-	      if (start->addr.sa.sa_family == AF_INET6)
-		{
-		  /* may have changed family */
-		  if (forward->rfd6 || (forward->rfd6 = allocate_rfd(AF_INET6)))
-		    fd = forward->rfd6->fd;
-		}
-	      else
-		{
-		  /* may have changed family */
-		  if (forward->rfd4 || (forward->rfd4 = allocate_rfd(AF_INET)))
-		    fd = forward->rfd4->fd;
-		}
-	    }
-	
-	  /* Can't get socket. */
-	  if (fd == -1)
-	    return;
-	  
+	  if ((fd = allocate_rfd(&forward->rfds, start)) == -1)
+ 	    return;
+
 	  while (retry_send(sendto(fd, (char *)header, plen, 0,
 				   &start->addr.sa,
 				   sa_len(&start->addr))));
@@ -966,7 +929,8 @@ void reply_query(int fd, int family, time_t now)
     }   
    
   server = forward->sentto;
-  if ((forward->sentto->flags & SERV_TYPE) == 0)
+  sd = server->serv_domain;
+  if (sd)
     {
       if (RCODE(header) == REFUSED)
 	server = NULL;
@@ -984,7 +948,7 @@ void reply_query(int fd, int family, time_t now)
 	      }
 	} 
       if (!option_bool(OPT_ALL_SERVERS))
-	daemon->last_server = server;
+	sd->last_server = server;
     }
  
   /* We tried resending to this server with a smaller maximum size and got an answer.
@@ -995,7 +959,7 @@ void reply_query(int fd, int family, time_t now)
     {
       server->edns_pktsz = SAFE_PKTSZ;
       server->pktsz_reduced = now;
-      prettyprint_addr(&server->addr, daemon->addrbuff);
+      (void)prettyprint_addr(&server->addr, daemon->addrbuff);
       my_syslog(LOG_WARNING, _("reducing DNS packet size for nameserver %s to %d"), daemon->addrbuff, SAFE_PKTSZ);
     }
 
@@ -1089,7 +1053,7 @@ void reply_query(int fd, int family, time_t now)
 		      /* Find server to forward to. This will normally be the 
 			 same as for the original query, but may be another if
 			 servers for domains are involved. */		      
-		      if (search_servers(now, NULL, F_DNSSECOK, daemon->keyname, &type, &domain, NULL) == 0)
+		      if (search_servers(now, NULL, F_DNSSECOK, daemon->keyname, &type, &domain, NULL, &sd) == 0)
 			{
 			  struct server *start = server, *new_server = NULL;
 			  
@@ -1118,8 +1082,7 @@ void reply_query(int fd, int family, time_t now)
 			}
 		      
 		      new->sentto = server;
-		      new->rfd4 = NULL;
-		      new->rfd6 = NULL;
+		      new->rfds = NULL;
 		      new->frec_src.next = NULL;
 		      new->flags &= ~(FREC_DNSKEY_QUERY | FREC_DS_QUERY | FREC_HAS_EXTRADATA);
 		      new->forwardall = 0;
@@ -1158,24 +1121,7 @@ void reply_query(int fd, int family, time_t now)
 		      /* Don't resend this. */
 		      daemon->srv_save = NULL;
 		      
-		      if (server->sfd)
-			fd = server->sfd->fd;
-		      else
-			{
-			  fd = -1;
-			  if (server->addr.sa.sa_family == AF_INET6)
-			    {
-			      if (new->rfd6 || (new->rfd6 = allocate_rfd(AF_INET6)))
-				fd = new->rfd6->fd;
-			    }
-			  else
-			    {
-			      if (new->rfd4 || (new->rfd4 = allocate_rfd(AF_INET)))
-				fd = new->rfd4->fd;
-			    }
-			}
-		      
-		      if (fd != -1)
+		      if ((fd = allocate_rfd(&new->rfds, server)) != -1)
 			{
 #ifdef HAVE_CONNTRACK
 			  /* Copy connection mark of incoming query to outgoing connection. */
@@ -1335,8 +1281,9 @@ void receive_query(struct listener *listen, time_t now)
 		 CMSG_SPACE(sizeof(struct sockaddr_dl))];
 #endif
   } control_u;
+  int family = listen->addr.sa.sa_family;
    /* Can always get recvd interface for IPv6 */
-  int check_dst = !option_bool(OPT_NOWILD) || listen->family == AF_INET6;
+  int check_dst = !option_bool(OPT_NOWILD) || family == AF_INET6;
 
   /* packet buffer overwritten */
   daemon->srv_save = NULL;
@@ -1348,7 +1295,7 @@ void receive_query(struct listener *listen, time_t now)
     {
       auth_dns = listen->iface->dns_auth;
      
-      if (listen->family == AF_INET)
+      if (family == AF_INET)
 	{
 	  dst_addr_4 = dst_addr.addr4 = listen->iface->addr.in.sin_addr;
 	  netmask = listen->iface->netmask;
@@ -1378,9 +1325,9 @@ void receive_query(struct listener *listen, time_t now)
      information disclosure. */
   memset(daemon->packet + n, 0, daemon->edns_pktsz - n);
   
-  source_addr.sa.sa_family = listen->family;
+  source_addr.sa.sa_family = family;
   
-  if (listen->family == AF_INET)
+  if (family == AF_INET)
     {
        /* Source-port == 0 is an error, we can't send back to that. 
 	  http://www.ietf.org/mail-archive/web/dnsop/current/msg11441.html */
@@ -1400,7 +1347,7 @@ void receive_query(struct listener *listen, time_t now)
     {
       struct addrlist *addr;
 
-      if (listen->family == AF_INET6) 
+      if (family == AF_INET6) 
 	{
 	  for (addr = daemon->interface_addrs; addr; addr = addr->next)
 	    if ((addr->flags & ADDRLIST_IPV6) &&
@@ -1438,7 +1385,7 @@ void receive_query(struct listener *listen, time_t now)
 	return;
 
 #if defined(HAVE_LINUX_NETWORK)
-      if (listen->family == AF_INET)
+      if (family == AF_INET)
 	for (cmptr = CMSG_FIRSTHDR(&msg); cmptr; cmptr = CMSG_NXTHDR(&msg, cmptr))
 	  if (cmptr->cmsg_level == IPPROTO_IP && cmptr->cmsg_type == IP_PKTINFO)
 	    {
@@ -1451,7 +1398,7 @@ void receive_query(struct listener *listen, time_t now)
 	      if_index = p.p->ipi_ifindex;
 	    }
 #elif defined(IP_RECVDSTADDR) && defined(IP_RECVIF)
-      if (listen->family == AF_INET)
+      if (family == AF_INET)
 	{
 	  for (cmptr = CMSG_FIRSTHDR(&msg); cmptr; cmptr = CMSG_NXTHDR(&msg, cmptr))
 	    {
@@ -1476,7 +1423,7 @@ void receive_query(struct listener *listen, time_t now)
 	}
 #endif
       
-      if (listen->family == AF_INET6)
+      if (family == AF_INET6)
 	{
 	  for (cmptr = CMSG_FIRSTHDR(&msg); cmptr; cmptr = CMSG_NXTHDR(&msg, cmptr))
 	    if (cmptr->cmsg_level == IPPROTO_IPV6 && cmptr->cmsg_type == daemon->v6pktinfo)
@@ -1497,16 +1444,16 @@ void receive_query(struct listener *listen, time_t now)
       if (!indextoname(listen->fd, if_index, ifr.ifr_name))
 	return;
       
-      if (!iface_check(listen->family, &dst_addr, ifr.ifr_name, &auth_dns))
+      if (!iface_check(family, &dst_addr, ifr.ifr_name, &auth_dns))
 	{
 	   if (!option_bool(OPT_CLEVERBIND))
 	     enumerate_interfaces(0); 
-	   if (!loopback_exception(listen->fd, listen->family, &dst_addr, ifr.ifr_name) &&
-	       !label_exception(if_index, listen->family, &dst_addr))
+	   if (!loopback_exception(listen->fd, family, &dst_addr, ifr.ifr_name) &&
+	       !label_exception(if_index, family, &dst_addr))
 	     return;
 	}
 
-      if (listen->family == AF_INET && option_bool(OPT_LOCALISE))
+      if (family == AF_INET && option_bool(OPT_LOCALISE))
 	{
 	  struct irec *iface;
 	  
@@ -1551,7 +1498,7 @@ void receive_query(struct listener *listen, time_t now)
 #endif
       char *types = querystr(auth_dns ? "auth" : "query", type);
       
-      if (listen->family == AF_INET) 
+      if (family == AF_INET) 
 	log_query(F_QUERY | F_IPV4 | F_FORWARD, daemon->namebuff, 
 		  (union all_addr *)&source_addr.in.sin_addr, types);
       else
@@ -1597,6 +1544,10 @@ void receive_query(struct listener *listen, time_t now)
       else if (udp_size < PACKETSZ)
 	udp_size = PACKETSZ; /* Sanity check - can't reduce below default. RFC 6891 6.2.3 */
     }
+
+  // Make sure the udp size is not smaller than the incoming message so that we
+  // do not underflow
+  if (udp_size < n) udp_size = n;
 
 #ifdef HAVE_AUTH
   if (auth_dns)
@@ -1694,7 +1645,7 @@ static int tcp_key_recurse(time_t now, int status, struct dns_header *header, si
       /* Find server to forward to. This will normally be the 
 	 same as for the original query, but may be another if
 	 servers for domains are involved. */		      
-      if (search_servers(now, NULL, F_DNSSECOK, keyname, &type, &domain, NULL) != 0)
+      if (search_servers(now, NULL, F_DNSSECOK, keyname, &type, &domain, NULL, NULL) != 0)
 	{
 	  new_status = STAT_ABANDONED;
 	  break;
@@ -1971,11 +1922,12 @@ unsigned char *tcp_request(int confd, time_t now,
 	      int type = SERV_DO_DNSSEC;
 	      char *domain = NULL;
 	      unsigned char *oph = find_pseudoheader(header, size, NULL, NULL, NULL, NULL);
+	      struct server_domain *sd = NULL;
 
 	      size = add_edns0_config(header, size, ((unsigned char *) header) + 65536, &peer_addr, now, &check_subnet, &cacheable);
 
 	      if (gotname)
-		flags = search_servers(now, &addrp, gotname, daemon->namebuff, &type, &domain, &norebind);
+		flags = search_servers(now, &addrp, gotname, daemon->namebuff, &type, &domain, &norebind, &sd);
 
 #ifdef HAVE_DNSSEC
 	      if (option_bool(OPT_DNSSEC_VALID) && (type & SERV_DO_DNSSEC))
@@ -1996,10 +1948,10 @@ unsigned char *tcp_request(int confd, time_t now,
 
 	      type &= ~SERV_DO_DNSSEC;
 	      
-	      if (type != 0  || option_bool(OPT_ORDER) || !daemon->last_server)
+	      if (!sd  || option_bool(OPT_ORDER) || !sd->last_server)
 		last_server = daemon->servers;
 	      else
-		last_server = daemon->last_server;
+		last_server = sd->last_server;
 	      
 	      if (!flags && last_server)
 		{
@@ -2176,9 +2128,8 @@ static struct frec *allocate_frec(time_t now)
       f->next = daemon->frec_list;
       f->time = now;
       f->sentto = NULL;
-      f->rfd4 = NULL;
+      f->rfds = NULL;
       f->flags = 0;
-      f->rfd6 = NULL;
 #ifdef HAVE_DNSSEC
       f->dependent = NULL;
       f->blocking_query = NULL;
@@ -2190,10 +2141,71 @@ static struct frec *allocate_frec(time_t now)
   return f;
 }
 
-struct randfd *allocate_rfd(int family)
+/* return a UDP socket bound to a random port, have to cope with straying into
+   occupied port nos and reserved ones. */
+static int random_sock(struct server *s)
+{
+  int fd;
+
+  if ((fd = socket(s->source_addr.sa.sa_family, SOCK_DGRAM, 0)) != -1)
+    {
+      if (local_bind(fd, &s->source_addr, s->interface, s->ifindex, 0))
+	return fd;
+
+      if (s->interface[0] == 0)
+	(void)prettyprint_addr(&s->source_addr, daemon->namebuff);
+      else
+	strcpy(daemon->namebuff, s->interface);
+
+      my_syslog(LOG_ERR, _("failed to bind server socket to %s: %s"),
+		daemon->namebuff, strerror(errno));
+      close(fd);
+    }
+
+  return -1;
+}
+
+/* compare source addresses and interface, serv2 can be null. */
+static int server_isequal(const struct server *serv1,
+			 const struct server *serv2)
+{
+  return (serv2 &&
+    serv2->ifindex == serv1->ifindex &&
+    sockaddr_isequal(&serv2->source_addr, &serv1->source_addr) &&
+    strncmp(serv2->interface, serv1->interface, IF_NAMESIZE) == 0);
+}
+
+/* fdlp points to chain of randomfds already in use by transaction.
+   If there's already a suitable one, return it, else allocate a 
+   new one and add it to the list. 
+
+   Not leaking any resources in the face of allocation failures
+   is rather convoluted here.
+
+   Note that rfd->serv may be NULL, when a server goes away.
+*/
+int allocate_rfd(struct randfd_list **fdlp, struct server *serv)
 {
   static int finger = 0;
-  int i;
+  int i, j = 0;
+  struct randfd_list *rfl;
+  struct randfd *rfd = NULL;
+  int fd = 0;
+
+  /* If server has a pre-allocated fd, use that. */
+  if (serv->sfd)
+    return serv->sfd->fd;
+
+  /* existing suitable random port socket linked to this transaction? */
+  for (rfl = *fdlp; rfl; rfl = rfl->next)
+    if (server_isequal(serv, rfl->rfd->serv))
+      return rfl->rfd->fd;
+
+  /* No. need new link. */
+  if ((rfl = daemon->rfl_spare))
+    daemon->rfl_spare = rfl->next;
+  else if (!(rfl = whine_malloc(sizeof(struct randfd_list))))
+    return -1;
 
   /* limit the number of sockets we have open to avoid starvation of 
      (eg) TFTP. Once we have a reasonable number, randomness should be OK */
@@ -2201,35 +2213,120 @@ struct randfd *allocate_rfd(int family)
   for (i = 0; i < RANDOM_SOCKS; i++)
     if (daemon->randomsocks[i].refcount == 0)
       {
-	if ((daemon->randomsocks[i].fd = random_sock(family)) == -1)
-	  break;
-      
-	daemon->randomsocks[i].refcount = 1;
-	daemon->randomsocks[i].family = family;
-	return &daemon->randomsocks[i];
+	if ((fd = random_sock(serv)) != -1)
+    	  {
+	    rfd = &daemon->randomsocks[i];
+	    rfd->serv = serv;
+	    rfd->fd = fd;
+	    rfd->refcount = 1;
+	  }
+	break;
       }
 
   /* No free ones or cannot get new socket, grab an existing one */
-  for (i = 0; i < RANDOM_SOCKS; i++)
+  if (!rfd)
+    for (j = 0; j < RANDOM_SOCKS; j++)
+      {
+	i = (j + finger) % RANDOM_SOCKS;
+	if (daemon->randomsocks[i].refcount != 0 &&
+	    server_isequal(serv, daemon->randomsocks[i].serv) &&
+	    daemon->randomsocks[i].refcount != 0xfffe)
+	  {
+	    finger = i + 1;
+	    rfd = &daemon->randomsocks[i];
+	    rfd->refcount++;
+	    break;
+	  }
+      }
+
+  if (j == RANDOM_SOCKS)
     {
-      int j = (i+finger) % RANDOM_SOCKS;
-      if (daemon->randomsocks[j].refcount != 0 &&
-	  daemon->randomsocks[j].family == family && 
-	  daemon->randomsocks[j].refcount != 0xffff)
+      struct randfd_list *rfl_poll;
+
+      /* there are no free slots, and non with the same parameters we can piggy-back on. 
+	 We're going to have to allocate a new temporary record, distinguished by
+	 refcount == 0xffff. This will exist in the frec randfd list, never be shared,
+	 and be freed when no longer in use. It will also be held on 
+	 the daemon->rfl_poll list so the poll system can find it. */
+
+      if ((rfl_poll = daemon->rfl_spare))
+	daemon->rfl_spare = rfl_poll->next;
+      else
+	rfl_poll = whine_malloc(sizeof(struct randfd_list));
+      
+      if (!rfl_poll ||
+	  !(rfd = whine_malloc(sizeof(struct randfd))) ||
+	  (fd = random_sock(serv)) == -1)
 	{
-	  finger = j;
-	  daemon->randomsocks[j].refcount++;
-	  return &daemon->randomsocks[j];
+	  /* Don't leak anything we may already have */
+	  rfl->next = daemon->rfl_spare;
+	  daemon->rfl_spare = rfl;
+
+	  if (rfl_poll)
+	    {
+	      rfl_poll->next = daemon->rfl_spare;
+	      daemon->rfl_spare = rfl_poll;
+	    }
+
+	  if (rfd)
+	    free(rfd);
+
+	  return -1; /* doom */
 	}
+
+      /* Note rfd->serv not set here, since it's not reused */
+      rfd->fd = fd;
+      rfd->refcount = 0xffff; /* marker for temp record */
+
+      rfl_poll->rfd = rfd;
+      rfl_poll->next = daemon->rfl_poll;
+      daemon->rfl_poll = rfl_poll;
     }
 
-  return NULL; /* doom */
+  rfl->rfd = rfd;
+  rfl->next = *fdlp;
+  *fdlp = rfl;
+
+  return rfl->rfd->fd;
 }
 
-void free_rfd(struct randfd *rfd)
+void free_rfds(struct randfd_list **fdlp)
 {
-  if (rfd && --(rfd->refcount) == 0)
-    close(rfd->fd);
+  struct randfd_list *tmp, *rfl, *poll, *next, **up;
+
+  for (rfl = *fdlp; rfl; rfl = tmp)
+    {
+      if (rfl->rfd->refcount == 0xffff || --(rfl->rfd->refcount) == 0)
+	close(rfl->rfd->fd);
+
+      /* temporary overflow record */
+      if (rfl->rfd->refcount == 0xffff)
+	{
+	  free(rfl->rfd);
+
+	  /* go through the link of all these by steam to delete.
+	     This list is expected to be almost always empty. */
+	  for (poll = daemon->rfl_poll, up = &daemon->rfl_poll; poll; poll = next)
+	    {
+	      next = poll->next;
+	      
+	      if (poll->rfd == rfl->rfd)
+		{
+		  *up = poll->next;
+		  poll->next = daemon->rfl_spare;
+		  daemon->rfl_spare = poll;
+		}
+	      else
+		up = &poll->next;
+	    }
+	}
+
+      tmp = rfl->next;
+      rfl->next = daemon->rfl_spare;
+      daemon->rfl_spare = rfl;
+    }
+
+  *fdlp = NULL;
 }
 
 static void free_frec(struct frec *f)
@@ -2245,12 +2342,9 @@ static void free_frec(struct frec *f)
     }
     
   f->frec_src.next = NULL;    
-  free_rfd(f->rfd4);
-  f->rfd4 = NULL;
+  free_rfds(&f->rfds);
   f->sentto = NULL;
   f->flags = 0;
-  free_rfd(f->rfd6);
-  f->rfd6 = NULL;
 
 #ifdef HAVE_DNSSEC
   if (f->stash)
@@ -2356,24 +2450,37 @@ struct frec *get_new_frec(time_t now, int *wait, int force)
   return f; /* OK if malloc fails and this is NULL */
 }
 
-static struct frec *lookup_frec(unsigned short id, int fd, int family, void *hash)
+static struct frec *lookup_frec(unsigned short id, int fd, void *hash)
 {
   struct frec *f;
+  struct server *s;
+  int type;
+  struct randfd_list *fdl;
 
   for(f = daemon->frec_list; f; f = f->next)
     if (f->sentto && f->new_id == id && 
 	(memcmp(hash, f->hash, HASH_SIZE) == 0))
       {
 	/* sent from random port */
-	if (family == AF_INET && f->rfd4 && f->rfd4->fd == fd)
+	for (fdl = f->rfds; fdl; fdl = fdl->next)
+	  if (fdl->rfd->fd == fd)
 	  return f;
 
-	if (family == AF_INET6 && f->rfd6 && f->rfd6->fd == fd)
-	  return f;
+	/* Sent to upstream from socket associated with a server. 
+	   Note we have to iterate over all the possible servers, since they may
+	   have different bound sockets. */
+	type = f->sentto->flags & SERV_TYPE;
+	s = f->sentto;
+	do {
+	  if ((type == (s->flags & SERV_TYPE)) &&
+	      (type != SERV_HAS_DOMAIN ||
+	       (s->domain && hostname_isequal(f->sentto->domain, s->domain))) &&
+	      !(s->flags & (SERV_LITERAL_ADDRESS | SERV_LOOP)) &&
+	      s->sfd && s->sfd->fd == fd)
+	    return f;
 
-	/* sent to upstream from bound socket. */
-	if (f->sentto->sfd && f->sentto->sfd->fd == fd)
-	  return f;
+	  s = s->next ? s->next : daemon->servers;
+	} while (s != f->sentto);
       }
       
   return NULL;
@@ -2424,34 +2531,28 @@ static struct frec *lookup_frec_by_query(void *hash, unsigned int flags)
 void resend_query()
 {
   if (daemon->srv_save)
-    {
-      int fd;
-      
-      if (daemon->srv_save->sfd)
-	fd = daemon->srv_save->sfd->fd;
-      else if (daemon->rfd_save && daemon->rfd_save->refcount != 0)
-	fd = daemon->rfd_save->fd;
-      else
-	return;
-      
-      while(retry_send(sendto(fd, daemon->packet, daemon->packet_len, 0,
-			      &daemon->srv_save->addr.sa, 
-			      sa_len(&daemon->srv_save->addr)))); 
-    }
+    while(retry_send(sendto(daemon->fd_save, daemon->packet, daemon->packet_len, 0,
+			    &daemon->srv_save->addr.sa, 
+			    sa_len(&daemon->srv_save->addr)))); 
 }
 
 /* A server record is going away, remove references to it */
 void server_gone(struct server *server)
 {
   struct frec *f;
-  
+  int i;
+
   for (f = daemon->frec_list; f; f = f->next)
     if (f->sentto && f->sentto == server)
       free_frec(f);
-  
-  if (daemon->last_server == server)
-    daemon->last_server = NULL;
 
+  /* If any random socket refers to this server, NULL the reference.
+     No more references to the socket will be created in the future. */
+  for (i = 0; i < RANDOM_SOCKS; i++)
+    if (daemon->randomsocks[i].refcount != 0 && daemon->randomsocks[i].serv == server)
+      daemon->randomsocks[i].serv = NULL;
+
+  /* last_server cleared by server_domain_cleanup */
   if (daemon->srv_save == server)
     daemon->srv_save = NULL;
 }
