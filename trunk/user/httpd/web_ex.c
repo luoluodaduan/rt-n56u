@@ -466,7 +466,6 @@ ej_nvram_get_ddns(int eid, webs_t wp, int argc, char **argv)
 	return ret;
 }
 
-
 /*
  * Example: 
  * wan_proto=dhcp
@@ -576,7 +575,6 @@ ej_nvram_get_buf_x(int eid, webs_t wp, int argc, char **argv)
 		return -1;
 	}
 
-	
 	return 0;
 }
 
@@ -2054,6 +2052,23 @@ static int dnsforwarder_status_hook(int eid, webs_t wp, int argc, char **argv)
 }
 #endif
 
+#if defined (APP_ADBYBY)
+static int adbyby_action_hook(int eid, webs_t wp, int argc, char **argv)
+{
+	int needed_seconds = 3;
+	char *ad_action = websGetVar(wp, "connect_action", "");
+	websWrite(wp, "<script>restart_needed_time(%d);</script>\n", needed_seconds);
+	return 0;
+}
+
+static int adbyby_status_hook(int eid, webs_t wp, int argc, char **argv)
+{
+	int ad_status_code = pids("adbyby");
+	websWrite(wp, "function adbyby_status() { return %d;}\n", ad_status_code);
+	return 0;
+}
+#endif
+
 static int
 ej_detect_internet_hook(int eid, webs_t wp, int argc, char **argv)
 {
@@ -2243,6 +2258,11 @@ ej_firmware_caps_hook(int eid, webs_t wp, int argc, char **argv)
 #else
 	int found_app_dnsforwarder = 0;
 #endif
+#if defined(APP_ADBYBY)
+	int found_app_adbyby = 1;
+#else
+	int found_app_adbyby = 0;
+#endif
 #if defined(APP_XUPNPD)
 	int found_app_xupnpd = 1;
 #else
@@ -2414,6 +2434,7 @@ ej_firmware_caps_hook(int eid, webs_t wp, int argc, char **argv)
 		"function found_app_napt66() { return %d;}\n"
 		"function found_app_dnsforwarder() { return %d;}\n"
 		"function found_app_shadowsocks() { return %d;}\n"
+		"function found_app_adbyby() { return %d;}\n"
 		"function found_app_xupnpd() { return %d;}\n"
 		"function found_app_mentohust() { return %d;}\n",
 		found_utl_hdparm,
@@ -2436,6 +2457,7 @@ ej_firmware_caps_hook(int eid, webs_t wp, int argc, char **argv)
 		found_app_napt66,
 		found_app_dnsforwarder,
 		found_app_shadowsocks,
+		found_app_adbyby,
 		found_app_xupnpd,
 		found_app_mentohust
 	);
@@ -4146,9 +4168,12 @@ struct ej_handler ej_handlers[] =
 #if defined (APP_DNSFORWARDER)
 	{ "dnsforwarder_status", dnsforwarder_status_hook},
 #endif
+#if defined (APP_ADBYBY)
+	{ "adbyby_action", adbyby_action_hook},
+	{ "adbyby_status", adbyby_status_hook},
+#endif
 	{ "openssl_util_hook", openssl_util_hook},
 	{ "openvpn_srv_cert_hook", openvpn_srv_cert_hook},
 	{ "openvpn_cli_cert_hook", openvpn_cli_cert_hook},
 	{ NULL, NULL }
 };
-

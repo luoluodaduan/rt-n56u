@@ -1,15 +1,11 @@
 SRC_NAME=pptpd-1.3.3
 THISDIR=$(shell pwd)
 
-PPPD_DIR=$(ROOTDIR)/user/pppd
-PPPD_VER=2.4.7
-
-CFLAGS  += -O2
-CFLAGS  += -ffunction-sections -fdata-sections
+CFLAGS  += -O2 -ffunction-sections -fdata-sections
 LDFLAGS += -Wl,--gc-sections
 
 all: config_test
-	$(MAKE) -C $(SRC_NAME)
+	$(MAKE) -j$(HOST_NCPU) -C $(SRC_NAME)
 
 config_test:
 	( if [ -f ./config_done ]; then \
@@ -24,9 +20,9 @@ configure:
 	export ac_cv_header_libintl_h=no ; \
 	export ac_cv_lib_intl_gettext=no ; \
 	./configure \
-		KDIR=$(ROOTDIR)/$(LINUXDIR) \
-		PPPDIR=$(PPPD_DIR) \
-		PPPVER=$(PPPD_VER) \
+		KDIR="$(ROOTDIR)/$(LINUXDIR)" \
+		PPPDIR="$(ROOTDIR)/user/pppd" \
+		PPPVER="2.4.7" \
 		--prefix=/usr \
 		--enable-bcrelay \
 		--host=$(HOST_TARGET) \
@@ -43,4 +39,3 @@ romfs:
 	$(ROMFSINST) -p +x $(THISDIR)/$(SRC_NAME)/pptpd /usr/sbin/pptpd
 	$(ROMFSINST) -p +x $(THISDIR)/$(SRC_NAME)/pptpctrl /usr/sbin/pptpctrl
 	$(ROMFSINST) -p +x $(THISDIR)/$(SRC_NAME)/bcrelay /usr/sbin/bcrelay
-

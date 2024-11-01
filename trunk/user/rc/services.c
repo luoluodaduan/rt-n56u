@@ -196,7 +196,7 @@ is_sshd_run(void)
 		if (pids("sshd"))
 			return 1;
 	}
-	
+
 	return 0;
 }
 
@@ -395,6 +395,23 @@ void start_napt66(void){
 			logmessage("napt66","Invalid wan6 ifname!");
 		}
 	}
+}
+#endif
+
+#if defined(APP_ADBYBY)
+void stop_adbyby(void){
+	eval("/usr/bin/adbyby.sh","stop");
+}
+
+void start_adbyby(void){
+	int adbyby_mode = nvram_get_int("adbyby_enable");
+	if ( adbyby_mode == 1)
+		eval("/usr/bin/adbyby.sh","start");
+}
+
+void restart_adbyby(void){
+	stop_adbyby();
+	start_adbyby();
 }
 #endif
 
@@ -615,6 +632,9 @@ start_services_once(int is_ap_mode)
 #if defined(APP_VLMCSD)
 	start_vlmcsd();
 #endif
+#if defined(APP_ADBYBY)
+	start_adbyby();
+#endif
 	start_lltd();
 	start_watchdog_cpu();
 	start_crond();
@@ -654,6 +674,9 @@ stop_services(int stopall)
 #endif
 #if defined(APP_TTYD)
 	stop_ttyd();
+#endif
+#if defined(APP_ADBYBY)
+	stop_adbyby();
 #endif
 	stop_networkmap();
 	stop_lltd();

@@ -256,4 +256,3 @@ clean:
 			rm -f $(DESTDIR)/.installed_$$i ; \
 		fi ; \
 	done
-

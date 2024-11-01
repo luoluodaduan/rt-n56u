@@ -38,7 +38,7 @@
 
 #define DNS_RESOLV_CONF			"/etc/resolv.conf"
 #define DNS_SERVERS_FILE		"/tmp/dnsmasq.servers"
-#define DNS_RELAY_QUERIES_MAX		512
+#define DNS_RELAY_QUERIES_MAX		256
 
 #define SCRIPT_UDHCPC_LAN		"/tmp/udhcpc_lan.script"
 #define SCRIPT_UDHCPC_WAN		"/tmp/udhcpc.script"
@@ -109,7 +109,7 @@
  #define KERNEL_NET_CORE_RMEM		1310720
  #define KERNEL_NET_CORE_WMEM		1310720
  #define KERNEL_MIN_FREE_KBYTES		12288
- #define DNS_RELAY_CACHE_MAX		1536
+ #define DNS_RELAY_CACHE_MAX		1024
  #define LOG_ROTATE_SIZE_MAX		1024
 #elif BOARD_RAM_SIZE > 64
  #define KERNEL_NET_CORE_RMEM		983040
@@ -121,19 +121,19 @@
  #define KERNEL_NET_CORE_RMEM		655360
  #define KERNEL_NET_CORE_WMEM		655360
  #define KERNEL_MIN_FREE_KBYTES		4096
- #define DNS_RELAY_CACHE_MAX		512
+ #define DNS_RELAY_CACHE_MAX		1024
  #define LOG_ROTATE_SIZE_MAX		256
 #elif BOARD_RAM_SIZE > 16
  #define KERNEL_NET_CORE_RMEM		327680
  #define KERNEL_NET_CORE_WMEM		327680
  #define KERNEL_MIN_FREE_KBYTES		2048
- #define DNS_RELAY_CACHE_MAX		256
+ #define DNS_RELAY_CACHE_MAX		1024
  #define LOG_ROTATE_SIZE_MAX		128
 #else
  #define KERNEL_NET_CORE_RMEM		163840
  #define KERNEL_NET_CORE_WMEM		163840
  #define KERNEL_MIN_FREE_KBYTES		1024
- #define DNS_RELAY_CACHE_MAX		160
+ #define DNS_RELAY_CACHE_MAX		1024
  #define LOG_ROTATE_SIZE_MAX		80
 #endif
 
@@ -547,6 +547,11 @@ void restart_vlmcsd(void);
 #endif
 #if defined(APP_NAPT66)
 void start_napt66(void);
+#endif
+#if defined(APP_ADBYBY)
+void stop_adbyby(void);
+void start_adbyby(void);
+void restart_adbyby(void);
 #endif
 #if defined(APP_DNSFORWARDER)
 void stop_dnsforwarder(void);

@@ -248,7 +248,7 @@ timematch_conv(char *mstr, const char *nv_date, const char *nv_time)
 					strcat(mstr, ",");
 				else
 					comma = 1;
-				
+
 				strcat(mstr, datestr[i]);
 			}
 		}
@@ -385,9 +385,9 @@ fill_static_routes(char *buf, int len, const char *ift)
 			len_iter = strlen(buf_iter);
 			if (len < (len_iter + 1))
 				break;
-			
+
 			strcat(buf, buf_iter);
-			
+
 			len -= len_iter;
 		}
 	}
@@ -411,7 +411,7 @@ include_vpns_clients(FILE *fp)
 			if (ppp_ifindex(ifname) >= VPN_SERVER_PPP_UNIT)
 				fprintf(fp, "-A %s -i %s -j %s\n", dtype, ifname, "ACCEPT");
 		}
-		
+
 		fclose(fpls);
 	}
 }
@@ -2123,6 +2123,9 @@ start_firewall_ex(void)
 #if defined (APP_SHADOWSOCKS)
 	const char *shadowsocks_iptables_script = "/tmp/shadowsocks_iptables.save";
 #endif
+#if defined (APP_ADBYBY)
+	const char *adbyby_iptables = "/tmp/adbyby_iptables.save";
+#endif
 
 	unit = 0;
 
@@ -2197,6 +2200,10 @@ start_firewall_ex(void)
 	if (check_if_file_exist(shadowsocks_iptables_script))
 		doSystem("sh %s", shadowsocks_iptables_script);
 #endif
+#if defined (APP_ADBYBY)
+	if (check_if_file_exist(adbyby_iptables))
+		doSystem("iptables-restore -n %s", adbyby_iptables);
+#endif
 	if (check_if_file_exist(int_iptables_script))
 		doSystem("%s", int_iptables_script);
 
@@ -2213,4 +2220,3 @@ start_firewall_ex(void)
 	module_smart_unload("iptable_mangle", 0);
 	module_smart_unload("ip6table_mangle", 0);
 }
-

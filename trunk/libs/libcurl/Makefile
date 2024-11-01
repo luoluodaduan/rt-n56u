@@ -1,20 +1,14 @@
 SRC_NAME=curl-7.79.1
-SRC_URL=https://github.com/curl/curl/releases/download/curl-7_79_1/curl-7.79.1.tar.xz
 
 LDFLAGS += -Wl,-rpath-link=$(STAGEDIR)/lib
 
-all: download_test extract_test config_test
+all: extract_test config_test
 	$(MAKE) -j$(HOST_NCPU) -C $(SRC_NAME)
-
-download_test:
-	( if [ ! -f $(SRC_NAME).tar.xz ]; then \
-		wget -t5 --timeout=20 --no-check-certificate -O $(SRC_NAME).tar.xz $(SRC_URL); \
-	fi )
 
 extract_test:
 	( if [ ! -d $(SRC_NAME) ]; then \
-		tar xf $(SRC_NAME).tar.xz; \
-		patch -d $(SRC_NAME) -p1 -i ../no_docs_test.patch; \
+		tar -xJf $(SRC_NAME).tar.xz; \
+		patch -d $(SRC_NAME) -p1 < no_docs_test.patch; \
 	fi )
 
 config_test:

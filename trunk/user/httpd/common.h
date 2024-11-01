@@ -92,7 +92,7 @@ typedef u_int8_t u8;
 #define EVM_RESTART_SHADOWSOCKS	(1ULL << 48)
 #define EVM_RESTART_SS_TUNNEL		(1ULL << 49)
 #define EVM_RESTART_MENTOHUST		(1ULL << 50)
-
+#define EVM_RESTART_ADBYBY		(1ULL << 51)
 #define EVM_RESTART_REBOOT		(1ULL << 62)
 
 #define EVM_BLOCK_UNSAFE		(1ULL << 63) /* special case */
@@ -151,6 +151,7 @@ typedef u_int8_t u8;
 #define EVT_RESTART_SS_TUNNEL		2
 #define EVT_RESTART_DNSFORWARDER	1
 #define EVT_RESTART_MENTOHUST		2
+#define EVT_RESTART_ADBYBY		2
 #define EVT_RESTART_REBOOT		40
 
 struct variable
@@ -181,6 +182,5 @@ struct evDesc
 int LookupServiceId(char *serviceId);
 const char *GetServiceId(int sid);
 struct variable *GetVariables(int sid);
-
 
 #endif /* _COMMON_H_ */

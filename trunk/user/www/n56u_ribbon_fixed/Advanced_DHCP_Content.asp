@@ -84,11 +84,11 @@ function initial(){
 function applyRule(){
 	if(validForm()){
 		showLoading();
-		
+
 		document.form.action_mode.value = " Restart ";
 		document.form.current_page.value = "/Advanced_DHCP_Content.asp";
 		document.form.next_page.value = "";
-		
+
 		document.form.submit();
 	}
 }
@@ -110,8 +110,6 @@ function validForm(){
 			!validate_ipaddr_final(o_max, 'dhcp_end') ||
 			!validate_ipaddr_final(document.form.dhcp_gateway_x, 'dhcp_gateway_x') ||
 			!validate_ipaddr_final(document.form.dhcp_dns1_x, 'dhcp_dns_x') ||
-			!validate_ipaddr_final(document.form.dhcp_dns2_x, 'dhcp_dns_x') ||
-			!validate_ipaddr_final(document.form.dhcp_dns3_x, 'dhcp_dns_x') ||
 			!validate_ipaddr_final(document.form.dhcp_wins_x, 'dhcp_wins_x'))
 		return false;
 
@@ -464,25 +462,13 @@ function changeBgColor(obj, num){
                                             <th colspan="2" style="background-color: #E3E3E3;"><#LANHostConfig_x_LDNSServer1_sectionname#></th>
                                         </tr>
                                         <tr>
-                                            <th width="50%"><a class="help_tooltip" href="javascript:void(0);" onmouseover="openTooltip(this,5,7);"><#LANHostConfig_x_LDNSServer1_itemname#> 1:</a></th>
+                                            <th width="50%"><a class="help_tooltip" href="javascript:void(0);" onmouseover="openTooltip(this,5,7);"><#LANHostConfig_x_LDNSServer1_itemname#>:</a></th>
                                             <td>
                                                 <input type="text" maxlength="15" class="input" size="15" name="dhcp_dns1_x" value="<% nvram_get_x("", "dhcp_dns1_x"); %>" onKeyPress="return is_ipaddr(this,event);" />
                                             </td>
                                         </tr>
                                         <tr>
-                                            <th><a class="help_tooltip" href="javascript:void(0);" onmouseover="openTooltip(this,5,8);"><#LANHostConfig_x_LDNSServer1_itemname#> 2:</a></th>
-                                            <td>
-                                                <input type="text" maxlength="15" class="input" size="15" name="dhcp_dns2_x" value="<% nvram_get_x("", "dhcp_dns2_x"); %>" onKeyPress="return is_ipaddr(this,event);" />
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <th><a class="help_tooltip" href="javascript:void(0);" onmouseover="openTooltip(this,5,9);"><#LANHostConfig_x_LDNSServer1_itemname#> 3:</a></th>
-                                            <td>
-                                                <input type="text" maxlength="15" class="input" size="15" name="dhcp_dns3_x" value="<% nvram_get_x("", "dhcp_dns3_x"); %>" onKeyPress="return is_ipaddr(this,event);" />
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <th><a class="help_tooltip" href="javascript:void(0);" onmouseover="openTooltip(this,5,12);"><#LANHostConfig_x_LDNSServer6_itemname#> :</th>
+                                            <th><a class="help_tooltip" href="javascript:void(0);" onmouseover="openTooltip(this,5,12);"><#LANHostConfig_x_LDNSServer6_itemname#>:</th>
                                             <td>
                                                 <input type="text" maxlength="40" class="input" size="15" name="dhcp_dnsv6_x" value="<% nvram_get_x("", "dhcp_dnsv6_x"); %>" onKeyPress="return is_string(this,event);" />
                                             </td>
@@ -514,23 +500,23 @@ function changeBgColor(obj, num){
                                             <td colspan="2">
                                                 <a href="javascript:spoiler_toggle('spoiler_conf')"><span><#CustomConf#> "dnsmasq.conf"</span></a>
                                                 <div id="spoiler_conf" style="display:none;">
-                                                    <textarea rows="16" wrap="off" spellcheck="false" maxlength="4096" class="span12" name="dnsmasq.dnsmasq.conf" style="font-family:'Courier New'; font-size:12px;"><% nvram_dump("dnsmasq.dnsmasq.conf",""); %></textarea>
+                                                    <textarea rows="16" wrap="off" spellcheck="false" maxlength="16384" class="span12" name="dnsmasq.dnsmasq.conf" style="font-family:'Courier New'; font-size:12px;"><% nvram_dump("dnsmasq.dnsmasq.conf",""); %></textarea>
                                                 </div>
                                             </td>
                                         </tr>
                                         <tr id="row_dservers">
                                             <td colspan="2">
-                                                <a href="javascript:spoiler_toggle('spoiler_dservers')"><span><#CustomConf#> "dhcp.conf"</span></a>
+                                                <a href="javascript:spoiler_toggle('spoiler_dservers')"><span><#CustomConf#> "dnsmasq.dns"</span></a>
                                                 <div id="spoiler_dservers" style="display:none;">
-                                                    <textarea rows="16" wrap="off" spellcheck="false" maxlength="16384" class="span12" name="dnsmasq.dhcp.conf" style="font-family:'Courier New'; font-size:12px;"><% nvram_dump("dnsmasq.dhcp.conf",""); %></textarea>
+                                                    <textarea rows="16" wrap="off" spellcheck="false" maxlength="16384" class="span12" name="dnsmasq.dnsmasq.servers" style="font-family:'Courier New'; font-size:12px;"><% nvram_dump("dnsmasq.dnsmasq.servers",""); %></textarea>
                                                 </div>
                                             </td>
                                         </tr>
                                         <tr id="row_hosts">
                                             <td colspan="2" style="padding-bottom: 0px;">
-                                                <a href="javascript:spoiler_toggle('spoiler_hosts')"><span><#CustomConf#> "hosts"</span></a>
+                                                <a href="javascript:spoiler_toggle('spoiler_hosts')"><span><#CustomConf#> "dnsmasq.hosts"</span></a>
                                                 <div id="spoiler_hosts" style="display:none;">
-                                                    <textarea rows="16" wrap="off" spellcheck="false" maxlength="8192" class="span12" name="dnsmasq.hosts" style="font-family:'Courier New'; font-size:12px;"><% nvram_dump("dnsmasq.hosts",""); %></textarea>
+                                                    <textarea rows="16" wrap="off" spellcheck="false" maxlength="16384" class="span12" name="dnsmasq.hosts" style="font-family:'Courier New'; font-size:12px;"><% nvram_dump("dnsmasq.hosts",""); %></textarea>
                                                 </div>
                                             </td>
                                         </tr>

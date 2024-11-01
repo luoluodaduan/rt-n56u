@@ -1,17 +1,11 @@
 SRC_NAME=confuse-3.3
-SRC_URL=https://github.com/libconfuse/libconfuse/releases/download/v3.3/confuse-3.3.tar.xz
 
-all: download_test extract_test config_test
+all: extract_test config_test
 	$(MAKE) -j$(HOST_NCPU) -C $(SRC_NAME)
-
-download_test:
-	( if [ ! -f $(SRC_NAME).tar.xz ]; then \
-		wget -t5 --timeout=20 --no-check-certificate -O $(SRC_NAME).tar.xz $(SRC_URL); \
-	fi )
 
 extract_test:
 	( if [ ! -d $(SRC_NAME) ]; then \
-		tar -xf $(SRC_NAME).tar.xz ; \
+		tar -xJf $(SRC_NAME).tar.xz ; \
 	fi )
 
 config_test:
@@ -31,7 +25,6 @@ configure:
 		--host=$(HOST_TARGET) \
 		--build=$(HOST_BUILD) ; \
 	)
-
 
 clean:
 	if [ -f $(SRC_NAME)/Makefile ] ; then \

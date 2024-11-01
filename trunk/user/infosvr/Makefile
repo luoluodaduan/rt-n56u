@@ -1,7 +1,7 @@
 USERDIR = $(ROOTDIR)/user
 
 CFLAGS += -I. -I$(USERDIR)/shared -I$(USERDIR)/shared/include
-LDFLAGS = -L$(USERDIR)/shared -lshared
+LDFLAGS += -L$(USERDIR)/shared -lshared
 
 OBJS=infosvr.o asus.o
 
@@ -19,4 +19,3 @@ romfs:
 
 clean:
 	rm -f *.o *~ infosvr
-
