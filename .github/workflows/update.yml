@@ -1,0 +1,50 @@
+name: Update
+
+on:
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Update
+        run: |
+          sudo apt-get update
+          rm -rf .travis.yml
+          rm -rf changes.eng.txt
+          rm -rf Dockerfile
+          rm -rf readme.eng.txt
+          rm -rf readme.rus.txt
+          rm -rf ./trunk/libs/libcurl/curl-7.79.1.tar.xz
+          rm -rf ./trunk/libs/libmnl/libmnl-1.0.4.tar.bz2
+          rm -rf ./trunk/libs/libssl/openssl-1.1.1l.patch
+          rm -rf ./trunk/libs/libssl/openssl-1.1.1l.tar.gz
+          rm -rf ./trunk/libs/libz/zlib-1.2.11.tar.gz
+          rm -rf ./trunk/user/smartdns/smartdns-Release33.tar.gz
+          rm -rf ./trunk/user/util-linux/util-linux-2.37.2.tar.xz
+          mkdir -p dist
+          mkdir -p ./trunk/user/smartdns/smartdns-4.x
+          wget https://github.com/pymumu/smartdns/archive/refs/heads/master.zip -O smartdns.zip
+          unzip -d dist smartdns.zip
+          /bin/cp -rf ./dist/smartdns-master/* ./trunk/user/smartdns/smartdns-4.x
+          rm -rf smartdns.zip
+          rm -rf dist
+
+      - name: Commit Files
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add .
+          git commit -m "Update"
+
+      - name: Push Changes
+        uses: ad-m/github-push-action@master
+        with:
+          branch: ${{ github.ref }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
