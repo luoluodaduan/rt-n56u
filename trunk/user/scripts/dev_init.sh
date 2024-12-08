@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
@@ -8,18 +8,18 @@ size_tmp="24M"
 size_var="4M"
 size_etc="6M"
 
-if [ "$1" == "-l" ] ; then
+if [ "$1" == "-l" ]; then
 	size_tmp="8M"
 	size_var="1M"
 fi
 
-mount -t tmpfs tmpfs /dev   -o size=8K
-mount -t tmpfs tmpfs /etc   -o size=$size_etc,noatime
-mount -t tmpfs tmpfs /home  -o size=1M
+mount -t tmpfs tmpfs /dev -o size=8K
+mount -t tmpfs tmpfs /etc -o size=$size_etc,noatime
+mount -t tmpfs tmpfs /home -o size=1M
 mount -t tmpfs tmpfs /media -o size=8K
-mount -t tmpfs tmpfs /mnt   -o size=8K
-mount -t tmpfs tmpfs /tmp   -o size=$size_tmp
-mount -t tmpfs tmpfs /var   -o size=$size_var
+mount -t tmpfs tmpfs /mnt -o size=8K
+mount -t tmpfs tmpfs /tmp -o size=$size_tmp
+mount -t tmpfs tmpfs /var -o size=$size_var
 
 mkdir /dev/pts
 mount -t devpts devpts /dev/pts
@@ -63,6 +63,10 @@ if [ -f /etc_ro/openssl.cnf ]; then
 	cp -f /etc_ro/openssl.cnf /etc/ssl
 fi
 
+if [ -f /etc_ro/cacert.crt ]; then
+	ln -sf /etc_ro/cacert.crt /etc/ssl/cacert.pem
+fi
+
 # create symlinks
 ln -sf /home/root /home/admin
 ln -sf /proc/mounts /etc/mtab
@@ -75,14 +79,14 @@ ln -sf /etc_ro/e2fsck.conf /etc/e2fsck.conf
 ln -sf /etc_ro/ipkg.conf /etc/ipkg.conf
 
 # tune linux kernel
-echo 65536        > /proc/sys/fs/file-max
-echo "1024 65535" > /proc/sys/net/ipv4/ip_local_port_range
+echo 65536 >/proc/sys/fs/file-max
+echo "1024 65535" >/proc/sys/net/ipv4/ip_local_port_range
 
 # fill storage
 mtd_storage.sh fill
 
 # prepare ssh authorized_keys
-if [ -f /etc/storage/authorized_keys ] ; then
+if [ -f /etc/storage/authorized_keys ]; then
 	cp -f /etc/storage/authorized_keys /home/root/.ssh
 	chmod 600 /home/root/.ssh/authorized_keys
 fi
@@ -90,11 +94,10 @@ fi
 # setup htop default color
 if [ -f /usr/bin/htop ]; then
 	mkdir -p /home/root/.config/htop
-	echo "color_scheme=6" > /home/root/.config/htop/htoprc
+	echo "color_scheme=6" >/home/root/.config/htop/htoprc
 fi
 
 # perform start script
-if [ -x /etc/storage/start_script.sh ] ; then
+if [ -x /etc/storage/start_script.sh ]; then
 	/etc/storage/start_script.sh
 fi
-

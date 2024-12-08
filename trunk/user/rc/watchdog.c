@@ -37,21 +37,20 @@
 #include "rc.h"
 #include "gpio_pins.h"
 
-
 #define WD_NORMAL_PERIOD	10		/* 10s */
 #define WD_URGENT_PERIOD	(100 * 1000)	/* 100ms */
 
 #define BTN_RESET_WAIT		5		/* 5s */
 #define BTN_RESET_WAIT_COUNT	(BTN_RESET_WAIT * 10)
 
-#define BTN_EZ_WAIT		3		/* 3s */
+#define BTN_EZ_WAIT			3		/* 3s */
 #define BTN_EZ_WAIT_COUNT	(BTN_EZ_WAIT * 10)
 #define BTN_EZ_CANCEL_COUNT	8		/* 800ms */
 
 #define WD_NOTIFY_ID_WIFI2	1
 #define WD_NOTIFY_ID_WIFI5	2
 
-#define WD_PID_FILE		"/var/run/watchdog.pid"
+#define WD_PID_FILE			"/var/run/watchdog.pid"
 
 enum
 {
@@ -85,7 +84,6 @@ static int btn_count_fn1 = 0;
 #if defined (BOARD_GPIO_BTN_FN2)
 static int btn_count_fn2 = 0;
 #endif
-
 
 static void
 wd_alarmtimer(unsigned long sec, unsigned long usec)
@@ -153,13 +151,13 @@ httpd_check_v2()
 					httpd_live = 1;
 				}
 			}
-			
+
 			fclose(fp);
 		}
-		
+
 		if (httpd_live)
 			break;
-		
+
 		/* check port changed */
 		if (nvram_get_int("http_lanport") != http_port)
 		{
@@ -167,7 +165,7 @@ httpd_check_v2()
 				system("killall wget");
 			return 1;
 		}
-		
+
 		sleep(1);
 	}
 
@@ -175,9 +173,9 @@ httpd_check_v2()
 	{
 		if (pids("wget"))
 			system("killall wget");
-		
+
 		dbg("httpd is so dead!!!\n");
-		
+
 		return 0;
 	}
 
@@ -233,7 +231,7 @@ btn_check_reset(void)
 	if (i_button_value == BTN_PRESSED) {
 		/* "RESET" pressed */
 		btn_count_reset++;
-		
+
 #if defined (BOARD_GPIO_LED_POWER)
 		/* flash power LED */
 		i_led = get_state_led_pwr();
@@ -248,7 +246,7 @@ btn_check_reset(void)
 		/* "RESET" released */
 		int press_count = btn_count_reset;
 		btn_count_reset = 0;
-		
+
 		if (press_count > BTN_RESET_WAIT_COUNT) {
 			/* pressed >= 5sec, reset! */
 			wd_alarmtimer(0, 0);
@@ -269,7 +267,6 @@ btn_check_reset(void)
 }
 #endif
 
-
 #if defined (BOARD_GPIO_BTN_WPS) || defined (BOARD_GPIO_BTN_FN1) || defined (BOARD_GPIO_BTN_FN2)
 static int
 btn_check_ez(int btn_pin, int btn_id, int *p_btn_state)
@@ -288,7 +285,7 @@ btn_check_ez(int btn_pin, int btn_id, int *p_btn_state)
 	if (i_button_value == BTN_PRESSED) {
 		/* BTN pressed */
 		(*p_btn_state)++;
-		
+
 #if defined (BOARD_GPIO_LED_POWER)
 		/* flash alert LED */
 		if (*p_btn_state > BTN_EZ_WAIT_COUNT) {
@@ -300,7 +297,7 @@ btn_check_ez(int btn_pin, int btn_id, int *p_btn_state)
 		/* BTN released */
 		int press_count = *p_btn_state;
 		*p_btn_state = 0;
-		
+
 		if (press_count > BTN_EZ_WAIT_COUNT) {
 			/* pressed >= 3sec */
 			wd_alarmtimer(0, 0);
@@ -371,13 +368,13 @@ ntpc_handler(void)
 		refresh_ntp();
 	} else if (!is_ntpc_updated()) {
 		int ntp_skip = 3;	// update every 30s
-		
+
 		ntpc_tries++;
 		if (ntpc_tries > 60)
 			ntp_skip = 30;	// update every 5m
 		else if (ntpc_tries > 9)
 			ntp_skip = 6;	// update every 60s
-		
+
 		if (!(ntpc_tries % ntp_skip))
 			refresh_ntp();
 	}
@@ -392,10 +389,10 @@ inet_handler(int is_ap_mode)
 		if (i_deferred_wanup > 0 && uptime() >= i_deferred_wanup)
 		{
 			notify_rc("deferred_wan_connect");
-			
+
 			return;
 		}
-		
+
 		if (has_wan_ip4(0) && has_wan_gw4())
 		{
 			/* sync time to ntp server if necessary */
@@ -407,6 +404,32 @@ inet_handler(int is_ap_mode)
 		if (has_lan_ip4() && has_lan_gw4())
 			ntpc_handler();
 	}
+}
+
+int timecheck_reboot(char *activeSchedule)
+{
+	int active, current_time, current_date, Time2Active, Date2Active;
+	time_t now;
+	struct tm *tm;
+	int i;
+
+	setenv("TZ", nvram_safe_get("time_zone_x"), 1);
+	time(&now);
+	tm = localtime(&now);
+	current_time = tm->tm_hour * 60 + tm->tm_min;
+	current_date = 1 << (6-tm->tm_wday);
+	active = 0;
+	Time2Active = 0;
+	Date2Active = 0;
+	Time2Active = ((activeSchedule[7]-'0')*10 + (activeSchedule[8]-'0'))*60 + ((activeSchedule[9]-'0')*10 + (activeSchedule[10]-'0'));
+
+	for(i=0;i<=6;i++) {
+		Date2Active += (activeSchedule[i]-'0') << (6-i);
+	}
+
+	if ((current_time == Time2Active) && (Date2Active & current_date)) active = 1;
+
+	return active;
 }
 
 /* Check for time-dependent service */
@@ -425,25 +448,25 @@ svc_timecheck(void)
 			svcStatus[RADIO5_ACTIVE] = -1;
 			svcStatus[GUEST5_ACTIVE] = -1;
 		}
-		
+
 		activeNow = is_radio_allowed_wl();
 		if (activeNow != svcStatus[RADIO5_ACTIVE])
 		{
 			svcStatus[RADIO5_ACTIVE] = activeNow;
-			
+
 			if (activeNow)
 				notify_rc("control_wifi_radio_wl_on");
 			else
 				notify_rc("control_wifi_radio_wl_off");
 		}
-		
+
 		if (svcStatus[RADIO5_ACTIVE] > 0)
 		{
 			activeNow = is_guest_allowed_wl();
 			if (activeNow != svcStatus[GUEST5_ACTIVE])
 			{
 				svcStatus[GUEST5_ACTIVE] = activeNow;
-				
+
 				if (activeNow)
 					notify_rc("control_wifi_guest_wl_on");
 				else
@@ -467,25 +490,25 @@ svc_timecheck(void)
 			svcStatus[RADIO2_ACTIVE] = -1;
 			svcStatus[GUEST2_ACTIVE] = -1;
 		}
-		
+
 		activeNow = is_radio_allowed_rt();
 		if (activeNow != svcStatus[RADIO2_ACTIVE])
 		{
 			svcStatus[RADIO2_ACTIVE] = activeNow;
-			
+
 			if (activeNow)
 				notify_rc("control_wifi_radio_rt_on");
 			else
 				notify_rc("control_wifi_radio_rt_off");
 		}
-		
+
 		if (svcStatus[RADIO2_ACTIVE] > 0)
 		{
 			activeNow = is_guest_allowed_rt();
 			if (activeNow != svcStatus[GUEST2_ACTIVE])
 			{
 				svcStatus[GUEST2_ACTIVE] = activeNow;
-				
+
 				if (activeNow)
 					notify_rc("control_wifi_guest_rt_on");
 				else
@@ -496,6 +519,23 @@ svc_timecheck(void)
 		{
 			if (svcStatus[GUEST2_ACTIVE] >= 0)
 				svcStatus[GUEST2_ACTIVE] = -1;
+		}
+	}
+
+	char reboot_schedule[PATH_MAX];
+	if (nvram_match("reboot_schedule_enable", "1"))
+	{
+		if (nvram_match("ntp_ready", "1"))
+		{
+			snprintf(reboot_schedule, sizeof(reboot_schedule), "%s", nvram_safe_get("reboot_schedule"));
+			if (strlen(reboot_schedule) == 11 && atoi(reboot_schedule) > 2359)
+			{
+				if (timecheck_reboot(reboot_schedule))
+				{
+					logmessage("reboot scheduler", "[%s] The system is going down for reboot\n", __FUNCTION__);
+					sys_exit();
+				}
+			}
 		}
 	}
 
@@ -536,11 +576,9 @@ ez_action_toggle_wifi2(void)
 	{
 		int i_radio_state = is_radio_on_rt();
 		i_radio_state = !i_radio_state;
-		
+
 		update_svc_status_wifi2();
-		
 		logmessage("watchdog", "Perform ez-button toggle %s radio: %s", "2.4GHz", (i_radio_state) ? "ON" : "OFF");
-		
 		control_radio_rt(i_radio_state, 1);
 	}
 }
@@ -553,11 +591,11 @@ ez_action_toggle_wifi5(void)
 	{
 		int i_radio_state = is_radio_on_wl();
 		i_radio_state = !i_radio_state;
-		
+
 		update_svc_status_wifi5();
-		
+
 		logmessage("watchdog", "Perform ez-button toggle %s radio: %s", "5GHz", (i_radio_state) ? "ON" : "OFF");
-		
+
 		control_radio_wl(i_radio_state, 1);
 	}
 #endif
@@ -711,13 +749,13 @@ ez_action_wan_toggle(void)
 	if (is_interface_up(get_man_ifname(0)))
 	{
 		logmessage("watchdog", "Perform ez-button %s...", "WAN disconnect");
-		
+
 		stop_wan();
 	}
 	else
 	{
 		logmessage("watchdog", "Perform ez-button %s...", "WAN reconnect");
-		
+
 		full_restart_wan();
 	}
 }
@@ -972,7 +1010,7 @@ dnsmasq_process_check(void)
 		dnsmasq_missing++;
 	else
 		dnsmasq_missing = 0;
-	
+
 	if (dnsmasq_missing > 1) {
 		dnsmasq_missing = 0;
 		logmessage("watchdog", "dnsmasq is missing, start again!");
@@ -1002,6 +1040,8 @@ ntpc_updated_main(int argc, char *argv[])
 		system("hwclock -w");
 #endif
 		logmessage("NTP Client", "System time changed, offset: %ss", offset);
+		sleep(30);
+		nvram_set_int("ntp_ready", 1);
 	}
 
 	return 0;
@@ -1045,7 +1085,7 @@ watchdog_on_timer(void)
 	/* if timer is set to less than 1 sec, then check buttons only */
 	if (wd_itv.it_value.tv_sec == 0) {
 		int i_ret = 0;
-		
+
 		/* handle buttons */
 #if defined (BOARD_GPIO_BTN_RESET)
 		i_ret |= btn_check_reset();
@@ -1065,7 +1105,7 @@ watchdog_on_timer(void)
 		} else {
 			wd_alarmtimer(WD_NORMAL_PERIOD, 0);
 		}
-		
+
 		return;
 	}
 
@@ -1219,4 +1259,3 @@ watchdog_main(int argc, char *argv[])
 
 	return 0;
 }
-

@@ -51,7 +51,6 @@
 
 /* This is a NOEXEC applet. Be very careful! */
 
-
 /* If you comment out one of these below, it will be #defined later
  * to perform debug printfs to stderr: */
 #define debug_printf_walker(...)  do {} while (0)
@@ -69,7 +68,6 @@
 #else
 # define debug_parse_print_tc(...) ((void)0)
 #endif
-
 
 /* "+": stop on first non-option:
  * $ awk 'BEGIN { for(i=1; i<ARGC; ++i) { print i ": " ARGV[i] }}' -argz
@@ -534,7 +532,6 @@ static const char vValues[] ALIGN1 =
 /* hash size may grow to these values */
 #define FIRST_PRIME 61
 static const uint16_t PRIMES[] ALIGN2 = { 251, 1021, 4093, 16381, 65521 };
-
 
 /* Globals. Split in two parts so that first one is addressed
  * with (mostly short) negative offsets.
@@ -3114,6 +3111,9 @@ static var *evaluate(node *op, var *res)
 
 		case XC( OC_MOVE ):
 			debug_printf_eval("MOVE\n");
+			/* make sure that we never return a temp var */
+			if (L.v == TMPVAR0)
+				L.v = res;
 			/* if source is a temporary string, jusk relink it to dest */
 			if (R.v == TMPVAR1
 			 && !(R.v->type & VF_NUMBER)

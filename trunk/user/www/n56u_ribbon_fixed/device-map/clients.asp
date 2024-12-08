@@ -75,7 +75,7 @@ function prepare_clients(){
 			if(!checkDuplicateName(list_of_BlockedClient[i][0], clients)){
 				k = clients.length;
 				clients[k] = new Array(8);
-				
+
 				clients[k][0] = "*";
 				clients[k][1] = "*";
 				clients[k][2] = list_of_BlockedClient[i][0];
@@ -84,9 +84,9 @@ function prepare_clients(){
 				clients[k][5] = "6";
 				clients[k][6] = "0";
 				clients[k][7] = "b";
-				
+
 				var mac_up = list_of_BlockedClient[i][0].toUpperCase();
-				
+
 				for(j = 0; j < m_dhcp.length; ++j){
 					if (mac_up == m_dhcp[j][0].toUpperCase()){
 						if (m_dhcp[j][2] != null && m_dhcp[j][2].length > 0)
@@ -97,7 +97,7 @@ function prepare_clients(){
 				}
 			}
 		}
-		
+
 		for(i = 0; i < clients.length; ++i){
 			if(!checkDuplicateName(clients[i][2], list_of_BlockedClient)){
 				clients[i][7] = "u";
@@ -158,6 +158,20 @@ function add_client_row(table, atIndex, client, blocked, j){
 	var rssiCell = row.insertCell(4);
 	var blockCell = row.insertCell(5);
 
+	var arpon = <% nvram_get_x("","dhcp_static_arp"); %>;
+	var mdhcp = <% nvram_get_x("","dhcp_static_x"); %>;
+	if (arpon == 1 && mdhcp == 1){
+		var j;
+		for(j = 0; j < m_dhcp.length; ++j){
+			if (client[2] == m_dhcp[j][0]){
+			client[0] = m_dhcp[j][2];
+			if (client[1] == m_dhcp[j][1]){
+			client[1] = m_dhcp[j][1];
+			}
+			}
+		}
+	}
+
 	typeCell.style.textAlign = "center";
 	typeCell.innerHTML = "<img title='"+ DEVICE_TYPE[client[5]]+"' src='/bootstrap/img/wl_device/" + client[5] +".gif'>";
 	nameCell.innerHTML = (client[6] == "1") ? "<a href=http://" + client[0] + " target='blank'>" + client[0] + "</a>" : client[0];
@@ -176,15 +190,15 @@ function show_clients(){
 	var i, j, k;
 	var table1, table2;
 	var addClient, clientType, clientName, clientIP, clientMAC, clientBlock;
-	
+
 	table1 = $('Clients_table');
 	table2 = $('xClients_table');
-	
+
 	while (table1.rows.length > 2)
 		table1.deleteRow(-1);
 	while (table2.rows.length > 2)
 		table2.deleteRow(-1);
-	
+
 	var hasBlocked = false;
 	for(j=0, i=0, k=0; j < clients.length; j++){
 		if(clients[j][7] == "u" || sw_mode == "3"){
@@ -336,7 +350,7 @@ function networkmap_update(s){
 </script>
 
 <style>
-    .table th, .table td{vertical-align: middle; text-align: center;}
+	.table th, .table td{vertical-align: middle; text-align: center;}
 </style>
 
 </head>
@@ -368,49 +382,49 @@ function networkmap_update(s){
 <div id="unBlockedClients_table"></div>
 
 <table id="Clients_table" width="100%" align="center" cellpadding="1" class="table">
-    <thead>
-        <tr>
-            <th colspan="5" style="text-align: center;"><#ConnectedClient#></th>
-        </tr>
-        <tr>
-            <th width="8%"><a href="javascript:sort(0)"><#Type#></a></th>
-            <th><a href="javascript:sort(1)"><#Computer_Name#></a></th>
-            <th width="20%"><a href="javascript:sort(2)">IP</a></th>
-            <th width="24%"><a href="javascript:sort(3)">MAC</a></th>
-            <th width="8%" id="col_rssi"><a href="javascript:sort(4)">RSSI</a></th>
-            <th width="0%" id="col_block"></th>
-        </tr>
-    </thead>
-    <tbody>
-    </tbody>
+	<thead>
+		<tr>
+			<th colspan="5" style="text-align: center;"><#ConnectedClient#></th>
+		</tr>
+		<tr>
+			<th width="8%"><a href="javascript:sort(0)"><#Type#></a></th>
+			<th><a href="javascript:sort(1)"><#Computer_Name#></a></th>
+			<th width="20%"><a href="javascript:sort(2)">IP</a></th>
+			<th width="24%"><a href="javascript:sort(3)">MAC</a></th>
+			<th width="8%" id="col_rssi"><a href="javascript:sort(4)">RSSI</a></th>
+			<th width="0%" id="col_block"></th>
+		</tr>
+	</thead>
+	<tbody>
+	</tbody>
 </table>
 
 <div id="blockedClients_table"></div>
 <table id="xClients_table" width="100%" align="center" class="table">
-    <thead>
-        <tr>
-            <th colspan="5" style="text-align: center;"><#BlockedClient#></th>
-        </tr>
-        <tr>
-            <th width="8%"><#Type#></th>
-            <th><#Computer_Name#></th>
-            <th width="20%">IP</th>
-            <th width="24%">MAC</th>
-            <th width="8%" id="col_unrssi">RSSI</th>
-            <th width="0%" id="col_unblock"></th>
-        </tr>
-    </thead>
-    <tbody>
-    </tbody>
+	<thead>
+		<tr>
+			<th colspan="5" style="text-align: center;"><#BlockedClient#></th>
+		</tr>
+		<tr>
+			<th width="8%"><#Type#></th>
+			<th><#Computer_Name#></th>
+			<th width="20%">IP</th>
+			<th width="24%">MAC</th>
+			<th width="8%" id="col_unrssi">RSSI</th>
+			<th width="0%" id="col_unblock"></th>
+		</tr>
+	</thead>
+	<tbody>
+	</tbody>
 </table>
 
 <center>
-    <input type="button" id="applyClient" class="btn btn-primary span2" onclick="applyRule();" value="<#CTL_apply#>" />
-    <input type="button" id="refresh_list" class="btn btn-info span2" onclick="networkmap_update('networkmap_refresh');" value="<#CTL_refresh#>" />
+	<input type="button" id="applyClient" class="btn btn-primary span2" onclick="applyRule();" value="<#CTL_apply#>" />
+	<input type="button" id="refresh_list" class="btn btn-info span2" onclick="networkmap_update('networkmap_refresh');" value="<#CTL_refresh#>" />
 </center>
 
 <div id="alert_block" class="alert alert-danger" style="margin-top:40px; display: none;">
-    <p><a href="/Advanced_MACFilter_Content.asp" target="_parent"><#menu5_5_3#></a> <#macfilter_alert_str1#></p>
+	<p><a href="/Advanced_MACFilter_Content.asp" target="_parent"><#menu5_5_3#></a> <#macfilter_alert_str1#></p>
 </div>
 
 <form method="post" name="form" id="refreshForm" action="/start_apply.htm" target="">
@@ -456,6 +470,3 @@ function networkmap_update(s){
 </script>
 </body>
 </html>
-
-
-

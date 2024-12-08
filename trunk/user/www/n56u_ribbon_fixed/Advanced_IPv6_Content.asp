@@ -54,7 +54,7 @@ function initial(){
 function applyRule(){
 	if(validForm()){
 		showLoading();
-		
+
 		document.form.current_page.value = "/Advanced_IPv6_Content.asp";
 		document.form.next_page.value = "";
 		document.form.action_mode.value = " Apply ";
@@ -69,6 +69,7 @@ function validate_not_empty(o) {
 		o.select();
 		return false;
 	}
+
 	return true;
 }
 
@@ -182,7 +183,7 @@ function change_ip6_service(){
 		$('row_ip6_6rd_size').style.display="none";
 		$('row_ip6_6rd_dhcp').style.display="none";
 	}
-	
+
 	if (ip6_con=="static") {
 		$('tbl_ip6_sit').style.display="none";
 		$('row_ip6_wan_dhcp').style.display="none";
@@ -236,17 +237,17 @@ function change_ip6_service(){
 		inputRCtrl2(document.form.ip6_lan_auto, 0);
 		$j('#ip6_dns_auto_on_of').iState(0);
 		$j('#ip6_lan_auto_on_of').iState(1);
-		
+
 		if (wan_proto == "static") {
 			document.form.ip6_6rd_dhcp.selectedIndex = 0;
 			inputCtrl(document.form.ip6_6rd_dhcp, 0);
 		}
-		
+
 		if (document.form.ip6_6rd_dhcp.value == "1") {
 			if (wan_proto != "dhcp")
 				warn = true;
 		}
-		
+
 		if (ppp) warn = true;
 	}
 	else {
@@ -328,7 +329,6 @@ function change_ip6_dns_auto(){
 	var v = !document.form.ip6_dns_auto[0].checked;
 	showhide_div('row_ip6_dns1', v);
 	showhide_div('row_ip6_dns2', v);
-	showhide_div('row_ip6_dns3', v);
 }
 
 function change_ip6_lan_auto(){
@@ -356,7 +356,7 @@ function change_ip6_lan_dhcp(){
 
 </script>
 <style>
-    .ip6_residual {width: 62px;}
+	.ip6_residual {width: 62px;}
 </style>
 </head>
 
@@ -372,7 +372,7 @@ function change_ip6_lan_dhcp(){
     <div class="container-fluid" style="padding-right: 0px">
         <div class="row-fluid">
             <div class="span3"><center><div id="logo"></div></center></div>
-            <div class="span9" >
+            <div class="span9">
                 <div id="TopBanner"></div>
             </div>
         </div>
@@ -426,7 +426,7 @@ function change_ip6_lan_dhcp(){
                                         <tr>
                                             <th width="50%"><#IP6_SVC#></th>
                                             <td align="left">
-                                                <select class="input" name="ip6_service" onchange="change_ip6_service()" >
+                                                <select class="input" name="ip6_service" onchange="change_ip6_service()">
                                                     <option value="" <% nvram_match_x("", "ip6_service", "", "selected"); %>><#btn_Disabled#></option>
                                                     <option value="static" <% nvram_match_x("", "ip6_service", "static", "selected"); %>>Native Static</option>
                                                     <option value="dhcp6" <% nvram_match_x("", "ip6_service", "dhcp6", "selected"); %>>Native DHCPv6</option>
@@ -448,7 +448,7 @@ function change_ip6_lan_dhcp(){
                                         <tr id="row_wan_if">
                                             <th><#IP6_WAN_IF#></th>
                                             <td align="left">
-                                                <select class="input" name="ip6_wan_if" style="width: 130px;" >
+                                                <select class="input" name="ip6_wan_if" style="width: 130px;">
                                                     <option value="0" <% nvram_match_x("", "ip6_wan_if", "0", "selected"); %>>WAN (ppp0)</option>
                                                     <option value="1" <% nvram_match_x("", "ip6_wan_if", "1", "selected"); %>>MAN</option>
                                                 </select>
@@ -583,12 +583,6 @@ function change_ip6_lan_dhcp(){
                                             <th width="50%"><#IP6_DNS_Addr#>&nbsp;2:</th>
                                             <td>
                                                 <input type="text" maxlength="40" style="width: 286px;" class="input" size="30" name="ip6_dns2" value="<% nvram_get_x("", "ip6_dns2"); %>" onkeypress="return is_string(this,event);" onblur="return validate_ip6addr(this);" />
-                                            </td>
-                                        </tr>
-                                        <tr id="row_ip6_dns3">
-                                            <th width="50%"><#IP6_DNS_Addr#>&nbsp;3:</th>
-                                            <td>
-                                                <input type="text" maxlength="40" style="width: 286px;" class="input" size="30" name="ip6_dns3" value="<% nvram_get_x("", "ip6_dns3"); %>" onkeypress="return is_string(this,event);" onblur="return validate_ip6addr(this);" />
                                             </td>
                                         </tr>
                                     </table>

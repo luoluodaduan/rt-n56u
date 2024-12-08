@@ -143,14 +143,14 @@ dir_$(CONFIG_FIRMWARE_INCLUDE_TCPDUMP)		+= tcpdump
 dir_$(CONFIG_FIRMWARE_INCLUDE_MTR)		+= mtr
 dir_$(CONFIG_FIRMWARE_INCLUDE_SOCAT)	+= socat
 dir_$(CONFIG_FIRMWARE_INCLUDE_SRELAY)	+= srelay
-dir_$(CONFIG_FIRMWARE_INCLUDE_TUNSAFE) += tunsafe
+dir_$(CONFIG_FIRMWARE_INCLUDE_TUNSAFE)	+= tunsafe
 ifeq ($(CONFIG_FIRMWARE_INCLUDE_WIREGUARD),y)
-dir_y += wireguard-go
-dir_y += wireguard-tools
+dir_y						+= wireguard-go
+dir_y						+= wireguard-tools
 endif
 ifeq ($(CONFIG_FIRMWARE_INCLUDE_SMBD36),y)
 dir_$(SAMBA_ENABLED)				+= samba36
-dir_y							+= wsdd2
+dir_$(SAMBA_ENABLED)				+= wsdd2
 else
 dir_$(SAMBA_ENABLED)				+= samba3
 endif
@@ -158,7 +158,7 @@ dir_$(CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS)	+= chnroute
 dir_$(CONFIG_FIRMWARE_INCLUDE_TTYD)		+= ttyd
 dir_$(FRP_ENABLE)				+= frp
 dir_$(SOFTETHERVPN_ENABLE)			+= softethervpn
-dir_$(CONFIG_FIRMWARE_INCLUDE_SCUTCLIENT)         += scutclient
+dir_$(CONFIG_FIRMWARE_INCLUDE_SCUTCLIENT)		+= scutclient
 dir_$(CONFIG_FIRMWARE_INCLUDE_VLMCSD)			+= vlmcsd
 dir_$(CONFIG_FIRMWARE_INCLUDE_DNSFORWARDER)		+= dns-forwarder
 dir_$(SHADOWSOCKS_ENABLE)				+= shadowsocks
@@ -171,10 +171,10 @@ dir_$(CONFIG_FIRMWARE_INCLUDE_NJIT_CLIENT)		+= njit-client
 dir_$(CONFIG_FIRMWARE_INCLUDE_MENTOHUST)		+= mentohust
 dir_$(CONFIG_FIRMWARE_INCLUDE_xTUN) 			+= xTun
 ifeq ($(CONFIG_FIRMWARE_INCLUDE_WING),y)
-dir_y 			+= wing
-dir_y 			+= ipt2socks
+dir_y						+= wing
+dir_y						+= ipt2socks
 endif
-dir_$(TROJAN_ENABLE) 			+= trojan
+dir_$(TROJAN_ENABLE)				+= trojan
 dir_$(CONFIG_FIRMWARE_INCLUDE_REDSOCKS)			+= redsocks
 dir_$(CONFIG_FIRMWARE_INCLUDE_3PROXY)			+= 3proxy
 

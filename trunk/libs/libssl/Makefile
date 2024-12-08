@@ -1,4 +1,4 @@
-SRC_NAME=openssl-1.1.1l
+SRC_NAME=openssl-1.1.1w
 SRC_URL=https://www.openssl.org/source/$(SRC_NAME).tar.gz
 
 # openssl use CROSS_COMPILE prefix
@@ -7,7 +7,7 @@ AR = ar
 RANLIB = ranlib
 CXX = g++
 
-COPTS = $(CPUFLAGS) -O3 $(filter-out -O%, $(CFLAGS))
+COPTS = $(CPUFLAGS) -O2 $(filter-out -O%, $(CFLAGS))
 COPTS += $(if $(CONFIG_IPV6),-DOPENSSL_USE_IPV6=1,)
 COPTS += -DOPENSSL_PREFER_CHACHA_OVER_GCM
 
@@ -15,12 +15,12 @@ CFLAGS := $(COPTS)
 CXXFLAGS := $(COPTS)
 
 OPENSSL_CIPHERS = no-capieng no-cms no-rfc3779 no-seed \
-  no-ec2m no-err no-threads no-idea no-rc5 no-rmd160 \
-  no-static-engine no-md2 no-sse2 no-dso no-ts no-mdc2 \
-  no-cast no-whirlpool no-sctp no-srp no-ssl2 no-ssl3 \
-  no-async no-blake2 no-hw-padlock no-aria no-hw \
-  no-devcryptoeng no-ssl3-method no-tests no-sm2 \
-  no-sm3 no-sm4 no-afalgeng no-comp
+no-ec2m no-err no-threads no-idea no-rc5 no-rmd160 \
+no-static-engine no-md2 no-sse2 no-dso no-ts no-mdc2 \
+no-cast no-whirlpool no-sctp no-srp no-ssl2 no-ssl3 \
+no-async no-blake2 no-hw-padlock no-aria no-hw \
+no-devcryptoeng no-ssl3-method no-tests no-sm2 \
+no-sm3 no-sm4 no-afalgeng no-comp
 
 ifneq ($(CONFIG_FIRMWARE_INCLUDE_SSWAN),y)
 OPENSSL_CIPHERS += no-rc2
@@ -40,8 +40,8 @@ download_test:
 
 extract_test:
 	( if [ ! -d $(SRC_NAME) ]; then \
-		tar -xf $(SRC_NAME).tar.gz; \
-		patch -d $(SRC_NAME) -p1 < $(SRC_NAME).patch; \
+		tar -xzf $(SRC_NAME).tar.gz; \
+		patch -d $(SRC_NAME) -p1 -i ../$(SRC_NAME).patch; \
 	fi )
 
 config_test:
@@ -77,7 +77,7 @@ romfs:
 	cp -fP $(DESTDIR)/lib/libssl.so* $(ROMFSDIR)/lib
 	cp -fP $(DESTDIR)/lib/libcrypto.so* $(ROMFSDIR)/lib
 	$(ROMFSINST) /etc_ro/openssl.cnf
+	$(ROMFSINST) /etc_ro/cacert.crt
 ifeq ($(CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE),y)
 	$(ROMFSINST) $(SRC_NAME)/apps/openssl /usr/bin/openssl
 endif
-

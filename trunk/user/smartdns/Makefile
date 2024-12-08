@@ -1,12 +1,12 @@
-SRC_NAME = smartdns-Release33
+SRC_NAME = smartdns-4.x
 THISDIR = $(shell pwd)
 
 all: extract_test config_test
-	$(MAKE) -C $(SRC_NAME)
+	$(MAKE) -j$(HOST_NCPU) -C $(SRC_NAME)
 
 extract_test:
 	( if [ ! -d $(SRC_NAME) ]; then \
-		tar -xf $(SRC_NAME).tar.gz ; \
+		tar -zxf $(SRC_NAME).tar.gz ; \
 	fi )
 
 config_test:

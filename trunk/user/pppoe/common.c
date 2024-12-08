@@ -83,7 +83,7 @@ parsePacket(PPPoEPacket *packet, ParseFunc *func, void *extra)
 
     /* Step through the tags */
     curTag = packet->payload;
-    while(curTag - packet->payload < len) {
+    while (curTag - packet->payload + TAG_HDR_SIZE <= len) {
 	/* Alignment is not guaranteed, so do this by hand... */
 	tagType = (((UINT16_t) curTag[0]) << 8) +
 	    (UINT16_t) curTag[1];
@@ -251,7 +251,6 @@ printErr(char const *str)
     fprintf(stderr, "pppoe: %s\n", str);
     syslog(LOG_ERR, "%s", str);
 }
-
 
 /**********************************************************************
 *%FUNCTION: strDup

@@ -1,9 +1,6 @@
 SRC_NAME=dnsmasq-2.8x
 
-COPTS := -DHAVE_BROKEN_RTC -DNO_INOTIFY -DNO_AUTH -DNO_LOOP
-ifndef CONFIG_IPV6
-COPTS += -DNO_IPV6
-endif
+COPTS := -DHAVE_BROKEN_RTC -DNO_INOTIFY -DNO_AUTH -DNO_LOOP -DNO_ID -DNO_DUMPFILE
 ifndef CONFIG_USB_SUPPORT
 COPTS += -DNO_TFTP
 endif
@@ -19,4 +16,6 @@ clean:
 	rm -f dnsmasq
 
 romfs:
-	$(ROMFSINST) $(SRC_NAME)/src/dnsmasq /usr/sbin/dnsmasq
+	cp $(SRC_NAME)/src/dnsmasq .
+	$(STRIP) dnsmasq
+	$(ROMFSINST) /usr/sbin/dnsmasq

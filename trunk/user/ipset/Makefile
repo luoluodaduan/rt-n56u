@@ -37,5 +37,6 @@ clean:
 	rm -f config_done
 
 romfs:
-	$(ROMFSINST) $(THISDIR)/$(SRC_NAME)/src/ipset /sbin/ipset
-
+	cp $(THISDIR)/$(SRC_NAME)/src/ipset .
+	$(STRIP) ipset
+	$(ROMFSINST) /sbin/ipset

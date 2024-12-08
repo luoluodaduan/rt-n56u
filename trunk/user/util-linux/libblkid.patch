@@ -1,7 +1,7 @@
-diff -urN util-linux-2.37.2-ref/libblkid/src/Makemodule.am util-linux-2.37.2/libblkid/src/Makemodule.am
---- util-linux-2.37.2-ref/libblkid/src/Makemodule.am	2021-05-06 18:55:46.887423460 +0800
-+++ util-linux-2.37.2/libblkid/src/Makemodule.am	2021-11-12 14:49:27.717654456 +0800
-@@ -26,78 +26,24 @@
+diff -urN a/libblkid/src/Makemodule.am b/libblkid/src/Makemodule.am
+--- a/libblkid/src/Makemodule.am	2022-01-06 21:52:17.849125000 +0800
++++ b/libblkid/src/Makemodule.am	2023-01-03 01:14:09.229782964 +0800
+@@ -26,93 +26,35 @@
  	libblkid/src/verify.c \
  	libblkid/src/version.c \
  	\
@@ -40,8 +40,8 @@ diff -urN util-linux-2.37.2-ref/libblkid/src/Makemodule.am util-linux-2.37.2/lib
 -	libblkid/src/superblocks/f2fs.c \
 -	libblkid/src/superblocks/gfs.c \
  	libblkid/src/superblocks/hfs.c \
--	libblkid/src/superblocks/highpoint_raid.c \
--	libblkid/src/superblocks/hpfs.c \
+ 	libblkid/src/superblocks/highpoint_raid.c \
+ 	libblkid/src/superblocks/hpfs.c \
 -	libblkid/src/superblocks/iso9660.c \
 -	libblkid/src/superblocks/isw_raid.c \
 -	libblkid/src/superblocks/jfs.c \
@@ -79,8 +79,11 @@ diff -urN util-linux-2.37.2-ref/libblkid/src/Makemodule.am util-linux-2.37.2/lib
 -	libblkid/src/superblocks/vxfs.c \
  	libblkid/src/superblocks/xfs.c \
  	libblkid/src/superblocks/zfs.c \
- 	libblkid/src/superblocks/zonefs.c \
-@@ -108,11 +54,7 @@
+-	libblkid/src/superblocks/zonefs.c \
+-	libblkid/src/superblocks/erofs.c \
+ 	\
+ 	libblkid/src/topology/topology.c \
+ 	libblkid/src/topology/topology.h
  
  if LINUX
  libblkid_la_SOURCES += \
@@ -92,9 +95,9 @@ diff -urN util-linux-2.37.2-ref/libblkid/src/Makemodule.am util-linux-2.37.2/lib
  	libblkid/src/topology/sysfs.c
  endif
  
-diff -urN util-linux-2.37.2-ref/libblkid/src/partitions/dos.c util-linux-2.37.2/libblkid/src/partitions/dos.c
---- util-linux-2.37.2-ref/libblkid/src/partitions/dos.c	2021-05-06 18:55:46.889423451 +0800
-+++ util-linux-2.37.2/libblkid/src/partitions/dos.c	2021-11-12 14:51:26.400971027 +0800
+diff -urN a/libblkid/src/partitions/dos.c b/libblkid/src/partitions/dos.c
+--- a/libblkid/src/partitions/dos.c	2021-05-06 18:55:46.889423000 +0800
++++ b/libblkid/src/partitions/dos.c	2023-01-03 01:01:43.453103865 +0800
 @@ -26,10 +26,7 @@
  } dos_nested[] = {
  	{ MBR_FREEBSD_PARTITION, &bsd_pt_idinfo },
@@ -107,9 +110,9 @@ diff -urN util-linux-2.37.2-ref/libblkid/src/partitions/dos.c util-linux-2.37.2/
  };
  
  static inline int is_extended(struct dos_partition *p)
-diff -urN util-linux-2.37.2-ref/libblkid/src/partitions/partitions.c util-linux-2.37.2/libblkid/src/partitions/partitions.c
---- util-linux-2.37.2-ref/libblkid/src/partitions/partitions.c	2021-07-20 17:33:27.503847800 +0800
-+++ util-linux-2.37.2/libblkid/src/partitions/partitions.c	2021-11-12 14:52:29.288401457 +0800
+diff -urN a/libblkid/src/partitions/partitions.c b/libblkid/src/partitions/partitions.c
+--- a/libblkid/src/partitions/partitions.c	2022-01-06 21:52:17.849125000 +0800
++++ b/libblkid/src/partitions/partitions.c	2023-01-03 01:03:06.202455317 +0800
 @@ -123,19 +123,11 @@
   */
  static const struct blkid_idinfo *idinfos[] =
@@ -131,10 +134,10 @@ diff -urN util-linux-2.37.2-ref/libblkid/src/partitions/partitions.c util-linux-
  };
  
  /*
-diff -urN util-linux-2.37.2-ref/libblkid/src/superblocks/superblocks.c util-linux-2.37.2/libblkid/src/superblocks/superblocks.c
---- util-linux-2.37.2-ref/libblkid/src/superblocks/superblocks.c	2021-05-06 18:55:46.892423435 +0800
-+++ util-linux-2.37.2/libblkid/src/superblocks/superblocks.c	2021-11-12 14:57:33.448417169 +0800
-@@ -89,87 +89,24 @@
+diff -urN a/libblkid/src/superblocks/superblocks.c b/libblkid/src/superblocks/superblocks.c
+--- a/libblkid/src/superblocks/superblocks.c	2022-01-06 21:52:17.851125000 +0800
++++ b/libblkid/src/superblocks/superblocks.c	2023-01-03 01:04:42.430542364 +0800
+@@ -89,87 +89,20 @@
   */
  static const struct blkid_idinfo *idinfos[] =
  {
@@ -151,7 +154,7 @@ diff -urN util-linux-2.37.2-ref/libblkid/src/superblocks/superblocks.c util-linu
 -	&highpoint37x_idinfo,
 -	&adraid_idinfo,
 -	&jmraid_idinfo,
- 
+-
 -	&bcache_idinfo,
 -	&bluestore_idinfo,
 -	&drbd_idinfo,
@@ -168,9 +171,7 @@ diff -urN util-linux-2.37.2-ref/libblkid/src/superblocks/superblocks.c util-linu
 -	&vdo_idinfo,
 -	&stratis_idinfo,
 -	&bitlocker_idinfo,
-+
-+
- 
+-
  	/* Filesystems */
  	&vfat_idinfo,
  	&swsuspend_idinfo,
@@ -225,9 +226,9 @@ diff -urN util-linux-2.37.2-ref/libblkid/src/superblocks/superblocks.c util-linu
  };
  
  /*
-diff -urN util-linux-2.37.2-ref/libblkid/src/topology/topology.c util-linux-2.37.2/libblkid/src/topology/topology.c
---- util-linux-2.37.2-ref/libblkid/src/topology/topology.c	2021-05-06 18:55:46.893423430 +0800
-+++ util-linux-2.37.2/libblkid/src/topology/topology.c	2021-11-12 14:58:16.854110848 +0800
+diff -urN a/libblkid/src/topology/topology.c b/libblkid/src/topology/topology.c
+--- a/libblkid/src/topology/topology.c	2021-05-06 18:55:46.893423000 +0800
++++ b/libblkid/src/topology/topology.c	2023-01-03 01:05:15.795215351 +0800
 @@ -77,11 +77,7 @@
  {
  #ifdef __linux__

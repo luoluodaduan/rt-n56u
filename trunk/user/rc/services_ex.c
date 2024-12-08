@@ -81,7 +81,7 @@ arpbind_clear(void)
 	if (fp) {
 		// skip first line
 		fgets(buffer, sizeof(buffer), fp);
-		
+
 		while (fgets(buffer, sizeof(buffer), fp)) {
 			arp_flags = 0;
 			if (sscanf(buffer, "%15s %*s 0x%x %*s %*s %31s", arp_ip, &arp_flags, arp_if) == 3) {
@@ -89,7 +89,7 @@ arpbind_clear(void)
 					doSystem("arp -i %s -d %s", IFNAME_BR, arp_ip);
 			}
 		}
-		
+
 		fclose(fp);
 	}
 }
@@ -125,7 +125,7 @@ fill_static_ethers(const char *lan_ip, const char *lan_mask)
 		i_max_items = nvram_get_int("dhcp_staticnum_x");
 		if (i_max_items > DHCPD_STATIC_MAX)
 			i_max_items = DHCPD_STATIC_MAX;
-		
+
 		/* first pass */
 		for (j = 0; j < i_max_items; j++) {
 			snprintf(nvram_key, sizeof(nvram_key), "dhcp_staticmac_x%d", j);
@@ -141,11 +141,11 @@ fill_static_ethers(const char *lan_ip, const char *lan_mask)
 				continue;
 			snprintf(nvram_key, sizeof(nvram_key), "dhcp_staticname_x%d", j);
 			shname = nvram_safe_get(nvram_key);
-			
+
 			/* fill multi-items array by IP */
 			for (i = 0; i < DHCPD_STATIC_MAX; i++) {
 				struct ip4_items_t *ipl = &ip4_list[i];
-				
+
 				if (!ipl->ip4) {
 					ipl->ip4 = ip4;
 					ipl->count = 1;
@@ -165,15 +165,15 @@ fill_static_ethers(const char *lan_ip, const char *lan_mask)
 				}
 			}
 		}
-		
+
 		/* second pass */
 		for (i = 0; i < DHCPD_STATIC_MAX; i++) {
 			struct ip4_items_t *ipl = &ip4_list[i];
 			struct in_addr in;
-			
+
 			if (!ipl->ip4)
 				break;
-			
+
 			in.s_addr = ipl->ip4;
 			sip4 = inet_ntoa(in);
 			if (fp[0] && ipl->count > 0) {
@@ -187,7 +187,7 @@ fill_static_ethers(const char *lan_ip, const char *lan_mask)
 				}
 				fprintf(fp[0], "set:%s,%s\n", DHCPD_RANGE_DEF_TAG, sip4);
 			}
-			
+
 			/* use only unique IP for /etc/ethers (ARP binds) */
 			if (i_arp_bind && ipl->count == 1 && ipl->mac[0]) {
 				smac = ipl->mac[0];
@@ -198,15 +198,15 @@ fill_static_ethers(const char *lan_ip, const char *lan_mask)
 				}
 				doSystem("arp -i %s -s %s %s", IFNAME_BR, sip4, smac);
 			}
-			
+
 			if (fp[2] && ipl->hname)
 				fprintf(fp[2], "%s %s\n", sip4, sanity_hostname(ipl->hname));
 		}
-		
+
 		/* cleanup items */
 		for (i = 0; i < DHCPD_STATIC_MAX; i++) {
 			struct ip4_items_t *ipl = &ip4_list[i];
-			
+
 			for (j = 0; j < DHCPD_MULTIMAC_MAX; j++) {
 				if (ipl->mac[j])
 					free(ipl->mac[j]);
@@ -262,9 +262,7 @@ fill_dnsmasq_servers(void)
 
 	/* fill from user dnsmasq.servers */
 	//load_user_config(fp, storage_dir, "dnsmasq.servers", NULL);
-
 	fclose(fp);
-
 	file_unlock(lock);
 
 	return 0;
@@ -295,7 +293,7 @@ start_dns_dhcpd(int is_ap_mode)
 	FILE *fp;
 	int i_verbose, i_dhcp_enable, is_dhcp_used, is_dns_used;
 	char dhcp_start[32], dhcp_end[32], dns_all[64], dnsv6[40];
-	char *ipaddr, *netmask, *gw, *dns1, *dns2, *dns3, *wins, *domain, *dns6;
+	char *ipaddr, *netmask, *gw, *dns1, *wins, *domain, *dns6;
 	const char *storage_dir = "/etc/storage/dnsmasq";
 
 	i_dhcp_enable = is_dhcpd_enabled(is_ap_mode);
@@ -314,7 +312,7 @@ start_dns_dhcpd(int is_ap_mode)
 	if (!is_ap_mode) {
 		/* create /etc/hosts (run after fill_static_ethers!) */
 		update_hosts_router(ipaddr);
-		
+
 		/* touch resolv.conf if not exist */
 		create_file(DNS_RESOLV_CONF);
 	}
@@ -347,7 +345,6 @@ start_dns_dhcpd(int is_ap_mode)
 		fprintf(fp, "dns-forward-max=%d\n", DNS_RELAY_QUERIES_MAX);
 		fprintf(fp, "addn-hosts=%s/hosts\n", storage_dir);
 		fprintf(fp, "servers-file=%s\n", DNS_SERVERS_FILE);
-		fprintf(fp, "dhcp-hostsfile=%s/dhcp.conf\n", storage_dir);
 	} else {
 		is_dns_used = 0;
 		fprintf(fp, "cache-size=%d\n", 0);
@@ -363,49 +360,38 @@ start_dns_dhcpd(int is_ap_mode)
 	if (i_dhcp_enable) {
 		snprintf(dhcp_start, sizeof(dhcp_start), "%s", nvram_safe_get("dhcp_start"));
 		snprintf(dhcp_end, sizeof(dhcp_end), "%s", nvram_safe_get("dhcp_end"));
-		
+
 		if (!chk_valid_subnet_pool(ipaddr, dhcp_start, dhcp_end, netmask)) {
 			nvram_set("dhcp_start", dhcp_start);
 			nvram_set("dhcp_end", dhcp_end);
 		}
-		
+
 		fprintf(fp, "dhcp-range=set:%s,%s,%s,%s,%d\n",
 			DHCPD_RANGE_DEF_TAG, dhcp_start, dhcp_end, netmask, nvram_get_int("dhcp_lease"));
-		
+
 		/* GATEWAY */
 		gw = nvram_safe_get("dhcp_gateway_x");
 		if (!is_valid_ipv4(gw))
 			gw = (!is_ap_mode) ? ipaddr : NULL;
 		if (gw)
 			fprintf(fp, "dhcp-option=tag:%s,%d,%s\n", DHCPD_RANGE_DEF_TAG, 3, gw);
-		
+
 		/* DNS server */
 		memset(dns_all, 0, sizeof(dns_all));
 		dns1 = nvram_safe_get("dhcp_dns1_x");
-		dns2 = nvram_safe_get("dhcp_dns2_x");
-		dns3 = nvram_safe_get("dhcp_dns3_x");
-		
+
 		if (is_valid_ipv4(dns1))
 			strcat(dns_all, dns1);
-		if (is_valid_ipv4(dns2) && (strcmp(dns2, dns1))) {
-			if (strlen(dns_all) > 0)
-				strcat(dns_all, ",");
-			strcat(dns_all, dns2);
-		}
-		if (is_valid_ipv4(dns3) && (strcmp(dns3, dns1) && strcmp(dns3, dns2))) {
-			if (strlen(dns_all) > 0)
-				strcat(dns_all, ",");
-			strcat(dns_all, dns3);
-		}
+
 		if (strlen(dns_all) == 0 && !is_ap_mode)
 			strcat(dns_all, ipaddr);
 		if (strlen(dns_all) > 0)
 			fprintf(fp, "dhcp-option=tag:%s,%d,%s\n", DHCPD_RANGE_DEF_TAG, 6, dns_all);
-		
+
 		/* DOMAIN search */
 		if (strlen(domain) > 0)
 			fprintf(fp, "dhcp-option=tag:%s,%d,%s\n", DHCPD_RANGE_DEF_TAG, 15, domain);
-		
+
 		/* WINS */
 		wins = nvram_safe_get("dhcp_wins_x");
 		if (is_valid_ipv4(wins))
@@ -416,33 +402,33 @@ start_dns_dhcpd(int is_ap_mode)
 #endif
 		if (i_verbose == 0 || i_verbose == 2)
 			fprintf(fp, "quiet-dhcp\n");
-		
+
 		is_dhcp_used |= 0x1;
 	}
 
 #if defined (USE_IPV6)
 	if (!is_ap_mode && is_lan_radv_on() == 1) {
 		int i_dhcp6s_mode = get_lan_dhcp6s_mode();
-		
+
 		fprintf(fp, "enable-ra\n");
 		if (i_verbose == 0 || i_verbose == 1)
 			fprintf(fp, "quiet-ra\n");
 		fprintf(fp, "ra-param=%s,%d,%d\n", IFNAME_BR, 30, 1800);
-		
+
 		is_dhcp_used |= 0x2;
-		
+
 		if (i_dhcp6s_mode == 0) {
 			int i_pref_lifetime = 600;
-			
+
 			if (is_lan_addr6_static() == 1)
 				i_pref_lifetime = 1800;
-			
+
 			/* Router Advertisement only, disable Stateful, disable SLAAC */
 			fprintf(fp, "dhcp-range=set:%s,::,constructor:%s%s,%d,%d\n",
 				DHCPD_RANGE_DEF_TAG, IFNAME_BR, ",ra-only,ra-names", 64, i_pref_lifetime);
 		} else {
 			int i_dhcp6s_irt = get_lan_dhcp6s_irt();
-			
+
 			if (i_dhcp6s_mode == 1) {
 				fprintf(fp, "dhcp-range=set:%s,::,constructor:%s%s,%d,%d\n",
 					DHCPD_RANGE_DEF_TAG, IFNAME_BR, ",ra-stateless,ra-names", 64, i_dhcp6s_irt);
@@ -451,18 +437,18 @@ start_dns_dhcpd(int is_ap_mode)
 				int i_sflt = nvram_safe_get_int("ip6_lan_sflt", 1800, 120, 604800);
 				int i_sfps = nvram_safe_get_int("ip6_lan_sfps", 4096, 2, 65534);
 				int i_sfpe = nvram_safe_get_int("ip6_lan_sfpe", 4352, 2, 65534);
-				
+
 				if (i_sfpe < i_sfps)
 					i_sfpe = i_sfps;
-				
+
 				if (i_dhcp6s_mode > 2)
 					range_mode = ",slaac,ra-names";
-				
+
 				/* Enable Stateful, Enable/Disable SLAAC */
 				fprintf(fp, "dhcp-range=set:%s,::%x,::%x,constructor:%s%s,%d,%d\n",
 					DHCPD_RANGE_DEF_TAG, i_sfps, i_sfpe, IFNAME_BR, range_mode, 64, i_sflt);
 			}
-			
+
 			/* DNS server */
 			memset(dnsv6, 0, sizeof(dnsv6));
 			dns6 = nvram_safe_get("dhcp_dnsv6_x");
@@ -472,17 +458,17 @@ start_dns_dhcpd(int is_ap_mode)
 				strcpy(dnsv6, "[::]");
 
 			fprintf(fp, "dhcp-option=tag:%s,option6:%d,%s\n", DHCPD_RANGE_DEF_TAG, 23, dnsv6);
-			
+
 			/* DOMAIN search */
 			if (strlen(domain) > 0)
 				fprintf(fp, "dhcp-option=tag:%s,option6:%d,%s\n", DHCPD_RANGE_DEF_TAG, 24, domain);
-			
+
 			/* Information Refresh Time */
 			fprintf(fp, "dhcp-option=tag:%s,option6:%d,%d\n", DHCPD_RANGE_DEF_TAG, 32, i_dhcp6s_irt);
-			
+
 			if (i_verbose == 0 || i_verbose == 1)
 				fprintf(fp, "quiet-dhcp6\n");
-			
+
 			is_dhcp_used |= 0x1;
 		}
 	}
@@ -1076,9 +1062,9 @@ write_inadyn_conf(const char *conf_file)
 		}
 
 		load_user_config(fp, INADYN_USER_DIR, "inadyn.conf", NULL);
-		
+
 		fclose(fp);
-		
+
 		return 1;
 	}
 
@@ -1174,4 +1160,3 @@ manual_ddns_hostname_check(void)
 {
 	nvram_set_temp("ddns_return_code", "inadyn_unsupport");
 }
-

@@ -1,5 +1,5 @@
-SRC_NAME=curl-7.79.1
-SRC_URL=https://github.com/curl/curl/releases/download/curl-7_79_1/curl-7.79.1.tar.xz
+SRC_NAME=curl-7.87.0
+SRC_URL=https://github.com/curl/curl/releases/download/curl-7_87_0/curl-7.87.0.tar.xz
 
 LDFLAGS += -Wl,-rpath-link=$(STAGEDIR)/lib
 
@@ -13,7 +13,7 @@ download_test:
 
 extract_test:
 	( if [ ! -d $(SRC_NAME) ]; then \
-		tar xf $(SRC_NAME).tar.xz; \
+		tar -xJf $(SRC_NAME).tar.xz; \
 		patch -d $(SRC_NAME) -p1 -i ../no_docs_test.patch; \
 	fi )
 
@@ -29,7 +29,7 @@ configure:
 	./configure \
 		--prefix=$(STAGEDIR) \
 		--enable-static \
-		--enable-shared \
+		--disable-shared \
 		$(if $(CONFIG_IPV6),--enable-ipv6,--disable-ipv6) \
 		--disable-gopher \
 		--disable-ldap \
@@ -51,14 +51,14 @@ configure:
 		--disable-libcurl-option \
 		--disable-threaded-resolver \
 		--without-gnutls \
-		--without-ca-bundle \
 		--without-libidn \
 		--without-libssh2 \
 		--without-krb4 \
 		--without-nss \
+		--with-ca-bundle=/etc/ssl/cacert.pem \
 		--with-random=/dev/urandom \
-		--with-zlib=$(STAGEDIR) \
 		--with-ssl=$(STAGEDIR) \
+		--with-zlib=$(STAGEDIR) \
 		--host=$(HOST_TARGET) \
 		--build=$(HOST_BUILD) ; \
 	)

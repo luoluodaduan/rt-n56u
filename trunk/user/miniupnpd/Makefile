@@ -10,8 +10,9 @@ ENABLE_IPV6:=0
 IPTABLESPATH=$(ROOTDIR)/user/iptables/$(IPT_VERSION)
 
 all:
+	tar -xJf $(SRC_NAME).tar.xz
 	cd $(SRC_NAME) && ./genconfig.sh
-	$(MAKE) -f Makefile.linux -C $(SRC_NAME) IPTABLESPATH=$(IPTABLESPATH) ENABLE_IPV6=$(ENABLE_IPV6)
+	$(MAKE) -j$(HOST_NCPU) -f Makefile.linux -C $(SRC_NAME) IPTABLESPATH=$(IPTABLESPATH) ENABLE_IPV6=$(ENABLE_IPV6)
 
 clean:
 	$(MAKE) -f Makefile.linux -C $(SRC_NAME) clean
@@ -19,5 +20,5 @@ clean:
 
 romfs:
 	cp $(SRC_NAME)/miniupnpd .
+	$(STRIP) miniupnpd
 	$(ROMFSINST) /usr/bin/miniupnpd
-

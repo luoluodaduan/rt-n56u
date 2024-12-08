@@ -21,11 +21,11 @@
 var $j = jQuery.noConflict();
 
 $j(document).ready(function() {
-    $j('#commit_nvram, #commit_storage').click(function(){
-        var $button = $j(this);
-        send_commit_action($button.prop('id'), $button);
-        return false;
-    });
+	$j('#commit_nvram, #commit_storage').click(function(){
+		var $button = $j(this);
+		send_commit_action($button.prop('id'), $button);
+		return false;
+	});
 });
 
 </script>
@@ -85,7 +85,7 @@ function applyRule(){
 
 function restoreNVRAM(){
 	var alert_string = "<#Setting_factorydefault_hint1#>";
-	if(lan_ipaddr != "192.168.1.1")
+	if(lan_ipaddr != "192.168.2.1")
 		alert_string += "\n<#Setting_factorydefault_iphint#>\n";
 	alert_string += "\n<#Setting_factorydefault_hint2#>";
 	if(confirm(alert_string)){

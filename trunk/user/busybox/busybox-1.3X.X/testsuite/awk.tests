@@ -98,7 +98,6 @@ testing "awk unused function args are evaluated" \
 	"G\nG\nF\n" \
 	"" ""
 
-
 optional DESKTOP
 testing "awk hex const 1" "awk '{ print or(0xffffffff,1) }'" "4294967295\n" "" "\n"
 testing "awk hex const 2" "awk '{ print or(0x80000000,1) }'" "2147483649\n" "" "\n"
@@ -468,5 +467,11 @@ testing 'awk printf %% prints one %' \
 	"awk 'BEGIN { printf \"%%\n\" }'" \
 	"%\n" \
 	'' ''
+
+testing 'awk assign while test' \
+	"awk '\$1==\$1=\"foo\" {print \$1}'" \
+	"foo\n" \
+	"" \
+	"foo"
 
 exit $FAILCOUNT

@@ -821,7 +821,7 @@ LED_CONTROL(int gpio_led, int flag)
 #endif
 		if (is_soft_blink)
 			cpu_gpio_led_enabled(gpio_led, (flag == LED_OFF) ? 0 : 1);
-		
+
 		cpu_gpio_set_pin(gpio_led, flag);
 	}
 }
@@ -948,6 +948,7 @@ init_router(void)
 		restart_crond();
 	}
 	// system ready
+	nvram_set_int("ntp_ready", 0);
 	system("/etc/storage/started_script.sh &");
 }
 
@@ -1034,7 +1035,7 @@ handle_notifications(void)
 	{
 		struct dirent *entry;
 		FILE *test_fp;
-		
+
 		entry = readdir(directory);
 		if (!entry)
 			break;
@@ -1042,13 +1043,13 @@ handle_notifications(void)
 			continue;
 		if (strcmp(entry->d_name, "..") == 0)
 			continue;
-		
+
 		/* Remove the marker file. */
 		snprintf(notify_name, sizeof(notify_name), "%s/%s", DIR_RC_NOTIFY, entry->d_name);
 		remove(notify_name);
-		
+
 		printf("rc notification: %s\n", entry->d_name);
-		
+
 		/* Take the appropriate action. */
 		if (!strcmp(entry->d_name, RCN_RESTART_REBOOT))
 		{
@@ -1439,9 +1440,9 @@ handle_notifications(void)
 		else if (strcmp(entry->d_name, RCN_RESTART_SYSCTL) == 0)
 		{
 			int nf_nat_type = nvram_get_int("nf_nat_type");
-			
+
 			restart_all_sysctl();
-			
+
 			/* flush conntrack after NAT model changing */
 			if (nvram_nf_nat_type != nf_nat_type) {
 				nvram_nf_nat_type = nf_nat_type;
@@ -1530,7 +1531,7 @@ handle_notifications(void)
 		{
 			dbg("WARNING: rc notified of unrecognized event `%s'.\n", entry->d_name);
 		}
-		
+
 		/*
 		 * If there hasn't been another request for the same event made since
 		 * we started, we can safely remove the ``action incomplete'' marker.
@@ -1550,7 +1551,7 @@ handle_notifications(void)
 			snprintf(notify_name, sizeof(notify_name), "%s/%s", DIR_RC_INCOMPLETE, entry->d_name);
 			remove(notify_name);
 		}
-		
+
 		if (stop_handle)
 			break;
 	}
@@ -1624,7 +1625,6 @@ static const applet_rc_t applets_rc[] = {
 #endif
 	{ NULL, NULL }
 };
-
 
 int
 main(int argc, char **argv)
@@ -1968,4 +1968,3 @@ main(int argc, char **argv)
 
 	return ret;
 }
-

@@ -140,9 +140,7 @@ unsigned FAST_FUNC bb_lookup_port(const char *port, const char *protocol, unsign
 	return (uint16_t)port_nr;
 }
 
-
 /* "New" networking API */
-
 
 int FAST_FUNC get_nport(const struct sockaddr *sa)
 {
@@ -415,7 +413,6 @@ int FAST_FUNC create_and_bind_dgram_or_die(const char *bindaddr, int port)
 	return create_and_bind_or_die(bindaddr, port, SOCK_DGRAM);
 }
 
-
 #if ENABLE_IFPLUGD || ENABLE_FEATURE_MDEV_DAEMON || ENABLE_UEVENT
 int FAST_FUNC create_and_bind_to_netlink(int proto, int grp, unsigned rcvbuf)
 {
@@ -505,8 +502,9 @@ static char* FAST_FUNC sockaddr2str(const struct sockaddr *sa, int flags)
 	);
 	if (rc)
 		return NULL;
+	/* ensure host contains only printable characters */
 	if (flags & IGNORE_PORT)
-		return xstrdup(host);
+		return xstrdup(printable_string(host));
 #if ENABLE_FEATURE_IPV6
 	if (sa->sa_family == AF_INET6) {
 		if (strchr(host, ':')) /* heh, it's not a resolved hostname */
@@ -517,7 +515,7 @@ static char* FAST_FUNC sockaddr2str(const struct sockaddr *sa, int flags)
 #endif
 	/* For now we don't support anything else, so it has to be INET */
 	/*if (sa->sa_family == AF_INET)*/
-		return xasprintf("%s:%s", host, serv);
+		return xasprintf("%s:%s", printable_string(host), serv);
 	/*return xstrdup(host);*/
 }
 

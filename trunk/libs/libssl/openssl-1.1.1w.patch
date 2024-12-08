@@ -1,0 +1,100 @@
+diff -ruN a/Configure b/Configure
+--- a/Configure 2022-09-07 17:01:45.966571318 +0800
++++ b/Configure 2022-09-07 17:03:18.403598925 +0800
+@@ -318,7 +318,7 @@
+ my $default_ranlib;
+ 
+ # Top level directories to build
+-$config{dirs} = [ "crypto", "ssl", "engines", "apps", "test", "util", "tools", "fuzz" ];
++$config{dirs} = [ "crypto", "ssl", "engines", "apps", "util", "tools" ];
+ # crypto/ subdirectories to build
+ $config{sdirs} = [
+     "objects",
+@@ -330,7 +330,7 @@
+     "cms", "ts", "srp", "cmac", "ct", "async", "kdf", "store"
+     ];
+ # test/ subdirectories to build
+-$config{tdirs} = [ "ossl_shim" ];
++$config{tdirs} = [];
+ 
+ # Known TLS and DTLS protocols
+ my @tls = qw(ssl3 tls1 tls1_1 tls1_2 tls1_3);
+
+diff -ruN a/crypto/build.info b/crypto/build.info
+--- a/crypto/build.info 2022-09-07 17:03:18.561597269 +0800
++++ b/crypto/build.info 2022-09-07 17:02:05.184368539 +0800
+@@ -10,7 +10,7 @@
+         ppccpuid.pl pariscid.pl alphacpuid.pl arm64cpuid.pl armv4cpuid.pl
+ 
+ DEPEND[cversion.o]=buildinf.h
+-GENERATE[buildinf.h]=../util/mkbuildinf.pl "$(CC) $(LIB_CFLAGS) $(CPPFLAGS_Q)" "$(PLATFORM)"
++GENERATE[buildinf.h]=../util/mkbuildinf.pl "$(filter-out -I% -iremap% -fmacro-prefix-map% -ffile-prefix-map%,$(CC) $(LIB_CFLAGS) $(CPPFLAGS_Q))" "$(PLATFORM)"
+ DEPEND[buildinf.h]=../configdata.pm
+ 
+ GENERATE[uplink-x86.s]=../ms/uplink-x86.pl $(PERLASM_SCHEME)
+
+diff -ruN a/include/openssl/ssl.h b/include/openssl/ssl.h
+--- a/include/openssl/ssl.h 2022-09-07 17:03:59.315170789 +0800
++++ b/include/openssl/ssl.h 2022-09-07 17:02:20.186210478 +0800
+@@ -173,9 +173,15 @@
+ # define SSL_DEFAULT_CIPHER_LIST "ALL:!COMPLEMENTOFDEFAULT:!eNULL"
+ /* This is the default set of TLSv1.3 ciphersuites */
+ # if !defined(OPENSSL_NO_CHACHA) && !defined(OPENSSL_NO_POLY1305)
+-#  define TLS_DEFAULT_CIPHERSUITES "TLS_AES_256_GCM_SHA384:" \
+-                                   "TLS_CHACHA20_POLY1305_SHA256:" \
+-                                   "TLS_AES_128_GCM_SHA256"
++#  ifdef OPENSSL_PREFER_CHACHA_OVER_GCM
++#   define TLS_DEFAULT_CIPHERSUITES "TLS_CHACHA20_POLY1305_SHA256:" \
++                                    "TLS_AES_256_GCM_SHA384:" \
++                                    "TLS_AES_128_GCM_SHA256"
++#  else
++#   define TLS_DEFAULT_CIPHERSUITES "TLS_AES_256_GCM_SHA384:" \
++                                    "TLS_CHACHA20_POLY1305_SHA256:" \
++                                    "TLS_AES_128_GCM_SHA256"
++#  endif
+ # else
+ #  define TLS_DEFAULT_CIPHERSUITES "TLS_AES_256_GCM_SHA384:" \
+                                    "TLS_AES_128_GCM_SHA256"
+
+diff -ruN a/ssl/ssl_ciph.c b/ssl/ssl_ciph.c
+--- a/ssl/ssl_ciph.c 2022-09-07 17:03:41.291359252 +0800
++++ b/ssl/ssl_ciph.c 2022-09-07 17:02:00.226420821 +0800
+@@ -1465,11 +1465,29 @@
+     ssl_cipher_apply_rule(0, SSL_kECDHE, 0, 0, 0, 0, 0, CIPHER_DEL, -1, &head,
+                           &tail);
+ 
++    /*
++     * If OPENSSL_PREFER_CHACHA_OVER_GCM is defined, ChaCha20_Poly1305
++     * will be placed before AES-256. Otherwise, the default behavior of
++     * preferring GCM over CHACHA is used.
++     * This is useful for systems that do not have AES-specific CPU
++     * instructions, where ChaCha20-Poly1305 is 3 times faster than AES.
++     * Note that this does not have the same effect as the SSL_OP_PRIORITIZE_CHACHA
++     * option, which prioritizes ChaCha20-Poly1305 only when the client has it on top
++     * of its ciphersuite preference.
++     */
++
++#ifdef OPENSSL_PREFER_CHACHA_OVER_GCM
++    ssl_cipher_apply_rule(0, 0, 0, SSL_CHACHA20, 0, 0, 0, CIPHER_ADD, -1,
++                          &head, &tail);
++    ssl_cipher_apply_rule(0, 0, 0, SSL_AESGCM, 0, 0, 0, CIPHER_ADD, -1,
++                          &head, &tail);
++#else
+     /* Within each strength group, we prefer GCM over CHACHA... */
+     ssl_cipher_apply_rule(0, 0, 0, SSL_AESGCM, 0, 0, 0, CIPHER_ADD, -1,
+                           &head, &tail);
+     ssl_cipher_apply_rule(0, 0, 0, SSL_CHACHA20, 0, 0, 0, CIPHER_ADD, -1,
+                           &head, &tail);
++#endif
+ 
+     /*
+      * ...and generally, our preferred cipher is AES.
+@@ -1525,7 +1543,7 @@
+      * Within each group, ciphers remain sorted by strength and previous
+      * preference, i.e.,
+      * 1) ECDHE > DHE
+-     * 2) GCM > CHACHA
++     * 2) GCM > CHACHA, reversed if OPENSSL_PREFER_CHACHA_OVER_GCM is defined
+      * 3) AES > rest
+      * 4) TLS 1.2 > legacy
+      *

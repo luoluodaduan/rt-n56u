@@ -1,5 +1,5 @@
-SRC_NAME=util-linux-2.37.2
-SRC_URL=https://www.kernel.org/pub/linux/utils/util-linux/v2.37/util-linux-2.37.2.tar.xz
+SRC_NAME=util-linux-2.38
+SRC_URL=https://www.kernel.org/pub/linux/utils/util-linux/v2.38/util-linux-2.38.tar.xz
 
 THISDIR = $(shell pwd)
 
@@ -17,7 +17,7 @@ download_test:
 
 extract_test:
 	( if [ ! -d $(SRC_NAME) ]; then \
-		tar xJf $(SRC_NAME).tar.xz; \
+		tar -xJf $(SRC_NAME).tar.xz; \
 		patch -d $(SRC_NAME) -p1 -i ../libblkid.patch; \
 	fi )
 
@@ -35,11 +35,7 @@ configure:
 	scanf_cv_type_modifier=no \
 	./configure \
 		--prefix=$(STAGEDIR) \
-		--without-tinfo \
 		--without-ncurses \
-		--without-user \
-		--without-cap-ng \
-		--without-util \
 		--without-ncursesw \
 		--without-slang \
 		--without-selinux \
@@ -49,35 +45,10 @@ configure:
 		--without-systemd \
 		--without-btrfs \
 		--without-readline \
+		--disable-all-programs \
 		--enable-libblkid \
 		--enable-libuuid \
-		--disable-cal \
-		--disable-fdformat \
-		--disable-hwclock \
-		--disable-bfs \
-		--disable-minix \
-		--disable-ipcrm \
-		--disable-ipcs \
-		--disable-setterm \
-		--disable-nsenter \
-		--disable-rfkill \
-		--disable-setpriv \
-		--disable-logger \
-		--disable-lslogins \
-		--disable-runuser \
-		--disable-libsmartcols \
-		--disable-raw \
-		--disable-ul \
-		--disable-chfn-chsh \
-		--disable-last \
-		--disable-fdisks \
-		--disable-libfdisk \
-		--disable-zramctl \
-		--disable-mesg \
-		--disable-nologin \
-		--disable-more \
-		--disable-chmem \
-		--disable-lsmem \
+		--enable-blkid \
 		--disable-bash-completion \
 		--disable-nls \
 		--disable-libmount \

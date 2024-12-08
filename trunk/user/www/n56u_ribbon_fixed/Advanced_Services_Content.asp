@@ -81,16 +81,16 @@ function initial(){
 		http_proto_change();
 	}
 	change_crond_enabled();
-	
+
 	if(found_app_ttyd()){	
 		$("tbl_ttyd").style.display = "";
 		change_ttyd_enabled();
 	}
-	
+
 	if(!found_app_vlmcsd()){
 		showhide_div('div_vlmcsd', 0);
 	}
-	
+
 	if(!found_app_napt66()){
 		showhide_div('div_napt66', 0);
 	}
@@ -99,11 +99,11 @@ function initial(){
 function applyRule(){
 	if(validForm()){
 		showLoading();
-		
+
 		document.form.action_mode.value = " Apply ";
 		document.form.current_page.value = "/Advanced_Services_Content.asp";
 		document.form.next_page.value = "";
-		
+
 		document.form.submit();
 	}
 }
@@ -542,7 +542,7 @@ function on_ttyd_link(){
                                         <tr>
                                             <th colspan="2" style="background-color: #E3E3E3;"><#Adm_System_misc#></th>
                                         </tr>
-										
+
                                         <tr id="div_vlmcsd">
                                             <th><#Adm_Svc_vlmcsd#></th>
                                             <td>

@@ -65,7 +65,7 @@ function initial(){
 	}
 
 	if((inet_network(document.form.lan_ipaddr.value)>=inet_network(document.form.dhcp_start.value))&&
-	   (inet_network(document.form.lan_ipaddr.value)<=inet_network(document.form.dhcp_end.value)))
+		(inet_network(document.form.lan_ipaddr.value)<=inet_network(document.form.dhcp_end.value)))
 		$('router_in_pool').style.display="";
 
 	showMDHCPList();
@@ -84,11 +84,11 @@ function initial(){
 function applyRule(){
 	if(validForm()){
 		showLoading();
-		
+
 		document.form.action_mode.value = " Restart ";
 		document.form.current_page.value = "/Advanced_DHCP_Content.asp";
 		document.form.next_page.value = "";
-		
+
 		document.form.submit();
 	}
 }
@@ -110,8 +110,6 @@ function validForm(){
 			!validate_ipaddr_final(o_max, 'dhcp_end') ||
 			!validate_ipaddr_final(document.form.dhcp_gateway_x, 'dhcp_gateway_x') ||
 			!validate_ipaddr_final(document.form.dhcp_dns1_x, 'dhcp_dns_x') ||
-			!validate_ipaddr_final(document.form.dhcp_dns2_x, 'dhcp_dns_x') ||
-			!validate_ipaddr_final(document.form.dhcp_dns3_x, 'dhcp_dns_x') ||
 			!validate_ipaddr_final(document.form.dhcp_wins_x, 'dhcp_wins_x'))
 		return false;
 
@@ -145,7 +143,7 @@ function validForm(){
 	}
 
 	if (!matchSubnet(o_min.value, lan_addr, lan_mask) ||
-	    !matchSubnet(o_max.value, lan_addr, lan_mask)) {
+		!matchSubnet(o_max.value, lan_addr, lan_mask)) {
 		if(confirm("<#JS_DHCP3#>")){
 			var snet_pool = snet_max-snet_min;
 			o_min.value=num2ip4(snet_min+2);
@@ -209,13 +207,13 @@ function setClientMAC(num){
 function showLANIPList(){
 	var code = "";
 	var show_name = "";
-	
+
 	for(var i = 0; i < clients_info.length ; i++){
 		if(clients_info[i][0] && clients_info[i][0].length > 20)
 			show_name = clients_info[i][0].substring(0, 18) + "..";
 		else
 			show_name = clients_info[i][0];
-		
+
 		if(clients_info[i][2]){
 			code += '<a href="javascript:void(0)"><div onclick="setClientMAC('+i+');"><strong>'+clients_info[i][1]+'</strong>';
 			code += ' ['+clients_info[i][2]+']';
@@ -226,7 +224,7 @@ function showLANIPList(){
 	}
 	if (code == "")
 		code = '<div style="text-align: center;" onclick="hideClients_Block();"><#Nodata#></div>';
-	code +='<!--[if lte IE 6.5]><iframe class="hackiframe2"></iframe><![endif]-->';	
+	code +='<!--[if lte IE 6.5]><iframe class="hackiframe2"></iframe><![endif]-->';
 	$("ClientList_Block").innerHTML = code;
 }
 
@@ -306,14 +304,14 @@ function showMDHCPList(){
 	if(m_dhcp.length == 0)
 		code +='<tr><td colspan="4" style="text-align: center;"><div class="alert alert-info"><#IPConnection_VSList_Norule#></div></td></tr>';
 	else{
-	    for(var i = 0; i < m_dhcp.length; i++){
+		for(var i = 0; i < m_dhcp.length; i++){
 		code +='<tr id="row' + i + '">';
 		code +='<td width="25%">&nbsp;' + m_dhcp[i][0] + '</td>';
 		code +='<td width="25%">&nbsp;' + m_dhcp[i][1] + '</td>';
 		code +='<td width="45%">&nbsp;' + m_dhcp[i][2] + '</td>';
 		code +='<td width="5%" style="text-align: center;"><input type="checkbox" name="ManualDHCPList_s" value="' + m_dhcp[i][mdhcp_ifield] + '" onClick="changeBgColor(this,' + i + ');" id="check' + m_dhcp[i][mdhcp_ifield] + '"></td>';
 		code +='</tr>';
-	    }
+		}
 		code += '<tr>';
 		code += '<td colspan="3">&nbsp;</td>'
 		code += '<td><button class="btn btn-danger" type="submit" onclick="markGroupMDHCP(this, 64, \' Del \');" name="ManualDHCPList"><i class="icon icon-minus icon-white"></i></button></td>';
@@ -330,12 +328,12 @@ function changeBgColor(obj, num){
 </script>
 <style>
 .table-list td {
-    padding: 6px 8px;
+	padding: 6px 8px;
 }
 .table-list input,
 .table-list select {
-    margin-top: 0px;
-    margin-bottom: 0px;
+	margin-top: 0px;
+	margin-bottom: 0px;
 }
 </style>
 </head>
@@ -345,7 +343,7 @@ function changeBgColor(obj, num){
     <div class="container-fluid" style="padding-right: 0px">
         <div class="row-fluid">
             <div class="span3"><center><div id="logo"></div></center></div>
-            <div class="span9" >
+            <div class="span9">
                 <div id="TopBanner"></div>
             </div>
         </div>
@@ -464,25 +462,13 @@ function changeBgColor(obj, num){
                                             <th colspan="2" style="background-color: #E3E3E3;"><#LANHostConfig_x_LDNSServer1_sectionname#></th>
                                         </tr>
                                         <tr>
-                                            <th width="50%"><a class="help_tooltip" href="javascript:void(0);" onmouseover="openTooltip(this,5,7);"><#LANHostConfig_x_LDNSServer1_itemname#> 1:</a></th>
+                                            <th width="50%"><a class="help_tooltip" href="javascript:void(0);" onmouseover="openTooltip(this,5,7);"><#LANHostConfig_x_LDNSServer1_itemname#>:</a></th>
                                             <td>
                                                 <input type="text" maxlength="15" class="input" size="15" name="dhcp_dns1_x" value="<% nvram_get_x("", "dhcp_dns1_x"); %>" onKeyPress="return is_ipaddr(this,event);" />
                                             </td>
                                         </tr>
                                         <tr>
-                                            <th><a class="help_tooltip" href="javascript:void(0);" onmouseover="openTooltip(this,5,8);"><#LANHostConfig_x_LDNSServer1_itemname#> 2:</a></th>
-                                            <td>
-                                                <input type="text" maxlength="15" class="input" size="15" name="dhcp_dns2_x" value="<% nvram_get_x("", "dhcp_dns2_x"); %>" onKeyPress="return is_ipaddr(this,event);" />
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <th><a class="help_tooltip" href="javascript:void(0);" onmouseover="openTooltip(this,5,9);"><#LANHostConfig_x_LDNSServer1_itemname#> 3:</a></th>
-                                            <td>
-                                                <input type="text" maxlength="15" class="input" size="15" name="dhcp_dns3_x" value="<% nvram_get_x("", "dhcp_dns3_x"); %>" onKeyPress="return is_ipaddr(this,event);" />
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <th><a class="help_tooltip" href="javascript:void(0);" onmouseover="openTooltip(this,5,12);"><#LANHostConfig_x_LDNSServer6_itemname#> :</th>
+                                            <th><a class="help_tooltip" href="javascript:void(0);" onmouseover="openTooltip(this,5,12);"><#LANHostConfig_x_LDNSServer6_itemname#>:</th>
                                             <td>
                                                 <input type="text" maxlength="40" class="input" size="15" name="dhcp_dnsv6_x" value="<% nvram_get_x("", "dhcp_dnsv6_x"); %>" onKeyPress="return is_string(this,event);" />
                                             </td>
@@ -514,23 +500,15 @@ function changeBgColor(obj, num){
                                             <td colspan="2">
                                                 <a href="javascript:spoiler_toggle('spoiler_conf')"><span><#CustomConf#> "dnsmasq.conf"</span></a>
                                                 <div id="spoiler_conf" style="display:none;">
-                                                    <textarea rows="16" wrap="off" spellcheck="false" maxlength="4096" class="span12" name="dnsmasq.dnsmasq.conf" style="font-family:'Courier New'; font-size:12px;"><% nvram_dump("dnsmasq.dnsmasq.conf",""); %></textarea>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                        <tr id="row_dservers">
-                                            <td colspan="2">
-                                                <a href="javascript:spoiler_toggle('spoiler_dservers')"><span><#CustomConf#> "dhcp.conf"</span></a>
-                                                <div id="spoiler_dservers" style="display:none;">
-                                                    <textarea rows="16" wrap="off" spellcheck="false" maxlength="16384" class="span12" name="dnsmasq.dhcp.conf" style="font-family:'Courier New'; font-size:12px;"><% nvram_dump("dnsmasq.dhcp.conf",""); %></textarea>
+                                                    <textarea rows="16" wrap="off" spellcheck="false" maxlength="10240" class="span12" name="dnsmasq.dnsmasq.conf" style="font-family:'Courier New'; font-size:12px;"><% nvram_dump("dnsmasq.dnsmasq.conf",""); %></textarea>
                                                 </div>
                                             </td>
                                         </tr>
                                         <tr id="row_hosts">
                                             <td colspan="2" style="padding-bottom: 0px;">
-                                                <a href="javascript:spoiler_toggle('spoiler_hosts')"><span><#CustomConf#> "hosts"</span></a>
+                                                <a href="javascript:spoiler_toggle('spoiler_hosts')"><span><#CustomConf#> "dnsmasq.hosts"</span></a>
                                                 <div id="spoiler_hosts" style="display:none;">
-                                                    <textarea rows="16" wrap="off" spellcheck="false" maxlength="8192" class="span12" name="dnsmasq.hosts" style="font-family:'Courier New'; font-size:12px;"><% nvram_dump("dnsmasq.hosts",""); %></textarea>
+                                                    <textarea rows="16" wrap="off" spellcheck="false" maxlength="10240" class="span12" name="dnsmasq.hosts" style="font-family:'Courier New'; font-size:12px;"><% nvram_dump("dnsmasq.hosts",""); %></textarea>
                                                 </div>
                                             </td>
                                         </tr>
