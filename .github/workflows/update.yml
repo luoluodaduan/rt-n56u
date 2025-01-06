@@ -6,16 +6,26 @@ on:
 jobs:
   update:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
+
+      - name: Free Disk Space
+        uses: FirelightFlagboy/gh-runner-free-disk-space@main
+
+      - name: Initialization environment
+        run: |
+          sudo -E apt-get -yqq update
+          sudo -E apt-get -yqq upgrade
+          sudo -E apt-get -yqq install jq
+          sudo -E apt-get -yqq autoremove
+          sudo -E apt-get -yqq autoclean
+          sudo -E apt-get -yqq clean
+          sudo -E systemctl daemon-reload
 
       - name: Update
         run: |
-          sudo apt-get update
           rm -rf .travis.yml
           rm -rf changes.eng.txt
           rm -rf Dockerfile
