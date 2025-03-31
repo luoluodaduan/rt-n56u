@@ -6,16 +6,13 @@ on:
 jobs:
   update:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
 
       - name: Update
         run: |
-          sudo apt-get update
           rm -rf .travis.yml
           rm -rf changes.eng.txt
           rm -rf Dockerfile
@@ -29,8 +26,14 @@ jobs:
           rm -rf ./trunk/user/smartdns/smartdns-Release33.tar.gz
           rm -rf ./trunk/user/util-linux/util-linux-2.37.2.tar.xz
           mkdir -p dist
+          #rm -rf ./trunk/user/dnsmasq/dnsmasq-2.8x/*
+          #rm -rf ./trunk/user/miniupnpd/miniupnpd-2.x/*
+          #wget https://github.com/luoluodaduan/dnsmasq/archive/main.zip -O dnsmasq.zip
+          #unzip -d dist dnsmasq.zip
+          #/bin/cp -rf ./dist/dnsmasq-main/* ./trunk/user/dnsmasq/dnsmasq-2.8x
+          #rm -rf dnsmasq.zip
           mkdir -p ./trunk/user/smartdns/smartdns-4.x
-          wget https://github.com/pymumu/smartdns/archive/refs/heads/master.zip -O smartdns.zip
+          wget https://github.com/pymumu/smartdns/archive/master.zip -O smartdns.zip
           unzip -d dist smartdns.zip
           /bin/cp -rf ./dist/smartdns-master/* ./trunk/user/smartdns/smartdns-4.x
           rm -rf smartdns.zip

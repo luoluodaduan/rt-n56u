@@ -5,12 +5,7 @@ on:
 
 jobs:
   build:
-    name: build
-    runs-on: ubuntu-latest
-    env:
-      build_variant: ${{ matrix.build_variant }}
-      targets: ${{ matrix.targets }}
-      images_dir: /opt/images
+    runs-on: ubuntu-22.04
     strategy:
       matrix:
         include:
@@ -18,26 +13,30 @@ jobs:
             targets: "PSG1218"
           - build_variant: "mt7621"
             targets: "RM2100"
+    env:
+      build_variant: ${{ matrix.build_variant }}
+      targets: ${{ matrix.targets }}
+      images_dir: /opt/images
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
+
+      - name: Free Disk Space
+        uses: FirelightFlagboy/gh-runner-free-disk-space@main
+
+      - name: Initialization environment
+        run: |
+          sudo -E apt-get -yqq update
+          sudo -E apt-get -yqq upgrade
+          sudo -E apt-get -yqq install autopoint gettext gperf libtool-bin python3-docutils
+          sudo -E apt-get -yqq autoremove
+          sudo -E apt-get -yqq autoclean
+          sudo -E apt-get -yqq clean
+          sudo -E systemctl daemon-reload
 
       - name: Prepare
         run: |
-          sudo apt-get update
-          sudo apt-get install libtool-bin gperf python3-docutils autopoint gettext
-          mkdir -p dist
-          rm -rf ./trunk/user/dnsmasq/dnsmasq-2.8x/*
-          rm -rf ./trunk/user/miniupnpd/miniupnpd-2.x/*
-          wget https://github.com/luoluodaduan/dnsmasq/archive/refs/heads/main.zip -O dnsmasq.zip
-          unzip -d dist dnsmasq.zip
-          /bin/cp -rf ./dist/dnsmasq-main/* ./trunk/user/dnsmasq/dnsmasq-2.8x
-          rm -rf dnsmasq.zip
-          rm -rf dist
           sh ./trunk/tools/shellcheck.sh
           cd toolchain-mipsel
           sh dl_toolchain.sh
@@ -56,8 +55,13 @@ jobs:
           name: Padavan-${{ env.targets }}
           path: ${{ env.images_dir }}
 
-      - name: Delete Workflow
-        uses: Mattraks/delete-workflow-runs@v2
+      - name: Delete old Releases and Workflows
+        if: matrix.targets == 'PSG1218'
+        uses: ophub/delete-releases-workflows@main
         with:
-          keep_minimum_runs: 1
-          retain_days: 1
+          delete_releases: true
+          releases_keep_latest: 0
+          delete_tags: true
+          delete_workflows: true
+          workflows_keep_day: 1
+          gh_token: ${{secrets.GITHUB_TOKEN}}
