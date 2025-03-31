@@ -9,6 +9,7 @@ COPTS += -DNO_IPSET
 endif
 
 all:
+	tar -xJf $(SRC_NAME).tar.xz
 	$(MAKE) -j$(HOST_NCPU) -C $(SRC_NAME) COPTS="$(COPTS)"
 
 clean:
