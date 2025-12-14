@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2024 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,12 +18,15 @@
 
 use futures::sink::SinkExt;
 use futures::stream::StreamExt;
+use hyper_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+use hyper_tungstenite::tungstenite::protocol::CloseFrame;
 use std::os::fd::AsRawFd;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::{interval_at, Instant};
 use tokio_fd::AsyncFd;
 
+use crate::smartdns::*;
 use hyper_tungstenite::{tungstenite, HyperWebsocket};
 use nix::errno::Errno;
 use nix::libc::*;
@@ -41,6 +44,23 @@ type Error = Box<dyn std::error::Error + Send + Sync + 'static>;
 const LOG_CONTROL_MESSAGE_TYPE: u8 = 1;
 const LOG_CONTROL_PAUSE: u8 = 1;
 const LOG_CONTROL_RESUME: u8 = 2;
+const LOG_CONTROL_LOGLEVEL: u8 = 3;
+
+struct LogLevelGuard {
+    old_log_level: LogLevel,
+}
+
+impl Drop for LogLevelGuard {
+    fn drop(&mut self) {
+        dns_log_set_level(self.old_log_level);
+    }
+}
+impl LogLevelGuard {
+    fn new() -> Self {
+        let old_log_level = dns_log_get_level();
+        LogLevelGuard { old_log_level }
+    }
+}
 
 pub async fn serve_log_stream(
     http_server: Arc<HttpServer>,
@@ -51,6 +71,9 @@ pub async fn serve_log_stream(
 
     let data_server = http_server.get_data_server();
     let mut log_stream = data_server.get_log_stream().await;
+
+    let _log_guard = LogLevelGuard::new();
+
     loop {
         tokio::select! {
             msg = log_stream.recv() => {
@@ -64,7 +87,128 @@ pub async fn serve_log_stream(
                         binary_msg.push(0);
                         binary_msg.push(msg.level as u8);
                         binary_msg.extend_from_slice(msg.msg.as_bytes());
-                        let msg = Message::Binary(binary_msg);
+                        let msg = Message::Binary(binary_msg.into());
+                        websocket.send(msg).await?;
+                    }
+                    None => {
+                        websocket.send(Message::Close(None)).await?;
+                        break;
+                    }
+                }
+            }
+
+            msg = websocket.next() => {
+                let message = msg.ok_or("websocket closed")??;
+                match message {
+                    Message::Text(_msg) => {}
+                    Message::Binary(msg) => {
+                        if msg.len() == 0 {
+                            continue;
+                        }
+
+                        let msg_type = msg[0];
+                        match msg_type {
+                            LOG_CONTROL_MESSAGE_TYPE => {
+                                if msg.len() < 2 {
+                                    continue;
+                                }
+                                let control_type = msg[1];
+                                match control_type {
+                                    LOG_CONTROL_PAUSE => {
+                                        is_pause = true;
+                                        continue;
+                                    }
+                                    LOG_CONTROL_RESUME => {
+                                        is_pause = false;
+                                        continue;
+                                    }
+                                    LOG_CONTROL_LOGLEVEL => {
+                                        if msg.len() < 6 {
+                                            continue;
+                                        }
+
+                                        let level_msg = &msg[2..2 + msg.len() - 2];
+                                        let str_log_level = std::str::from_utf8(level_msg);
+                                        if str_log_level.is_err() {
+                                            continue;
+                                        }
+
+                                        let str_log_level = str_log_level.unwrap();
+                                        if str_log_level.len() == 0 {
+                                            continue;
+                                        }
+
+                                        let str_log_level = str_log_level.to_lowercase();
+                                        let str_log_level = str_log_level.as_str();
+
+                                        let log_level = str_log_level.try_into();
+                                        if log_level.is_err() {
+                                            continue;
+                                        }
+
+                                        let log_level = log_level.unwrap();
+                                        dns_log_set_level(log_level);
+                                    }
+                                    _ => {
+                                        continue;
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    Message::Ping(_msg) => {}
+                    Message::Pong(_msg) => {}
+                    Message::Close(_msg) => {
+                        websocket.send(Message::Close(None)).await?;
+                        break;
+                    }
+                    Message::Frame(_msg) => {
+                        unreachable!();
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn serve_audit_log_stream(
+    http_server: Arc<HttpServer>,
+    websocket: HyperWebsocket,
+) -> Result<(), Error> {
+    let mut websocket = websocket.await?;
+    let mut is_pause = false;
+
+    let data_server = http_server.get_data_server();
+    let mut log_stream = data_server.get_audit_log_stream().await;
+
+    if dns_audit_log_enabled() == false {
+        let reason =
+            "Audit log is not enabled, please set `audit-enable` to `yes` in smartdns config file.";
+
+        let close_msg = CloseFrame {
+            code: CloseCode::Bad(4003),
+            reason: reason.into(),
+        };
+        websocket.send(Message::Close(Some(close_msg))).await?;
+        return Ok(());
+    }
+
+    loop {
+        tokio::select! {
+            msg = log_stream.recv() => {
+                if is_pause {
+                    continue;
+                }
+
+                match msg {
+                    Some(msg) => {
+                        let mut binary_msg = Vec::with_capacity(1 + msg.msg.len());
+                        binary_msg.push(0);
+                        binary_msg.extend_from_slice(msg.msg.as_bytes());
+                        let msg = Message::Binary(binary_msg.into());
                         websocket.send(msg).await?;
                     }
                     None => {
@@ -137,11 +281,11 @@ pub async fn serve_metrics(
                 match metrics {
                     Ok(metrics) => {
                         let data_server = api_msg_gen_metrics_data(&metrics);
-                        let msg = Message::Text(data_server);
+                        let msg = Message::Text(data_server.into());
                         websocket.send(msg).await?;
                     }
                     Err(e) => {
-                        let msg = Message::Text(format!("{{\"error\": \"{}\"}}", e));
+                        let msg = Message::Text(format!("{{\"error\": \"{}\"}}", e).into());
                         websocket.send(msg).await?;
                     }
                 }
@@ -304,7 +448,7 @@ pub async fn serve_term(websocket: HyperWebsocket) -> Result<(), Error> {
         let mut buf = [0u8; 4096];
         buf[0] = TermMessageType::Err as u8;
         buf[1..msg.len() + 1].copy_from_slice(msg.as_bytes());
-        let msg = Message::Binary(buf[..msg.len() + 1].to_vec());
+        let msg = Message::Binary(buf[..msg.len() + 1].to_vec().into());
         let _ = ws.send(msg);
 
         let msg = Message::Close(None);
@@ -333,7 +477,7 @@ pub async fn serve_term(websocket: HyperWebsocket) -> Result<(), Error> {
 
                         data_len = n + 1;
                         data_type[0] = TermMessageType::Data as u8;
-                        let msg = Message::Binary(buf[..data_len].to_vec());
+                        let msg = Message::Binary(buf[..data_len].to_vec().into());
                         websocket.send(msg).await?;
                     }
                     Err(e) => {

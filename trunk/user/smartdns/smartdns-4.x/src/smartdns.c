@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2024 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,15 +18,15 @@
 
 #define _GNU_SOURCE
 
-#include "smartdns.h"
+#include "smartdns/smartdns.h"
 
-#include "art.h"
-#include "atomic.h"
-#include "hashtable.h"
-#include "list.h"
-#include "rbtree.h"
-#include "timer.h"
-#include "tlog.h"
+#include "smartdns/lib/art.h"
+#include "smartdns/lib/atomic.h"
+#include "smartdns/lib/hashtable.h"
+#include "smartdns/lib/list.h"
+#include "smartdns/lib/rbtree.h"
+#include "smartdns/timer.h"
+#include "smartdns/tlog.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -110,7 +110,7 @@ static void _smartdns_get_version(char *str_ver, int str_ver_len)
 #endif
 }
 
-const char *smartdns_version()
+const char *smartdns_version(void)
 {
 	static char str_ver[256] = {0};
 	if (str_ver[0] == 0) {
@@ -137,7 +137,6 @@ static int _smartdns_load_from_resolv_file(const char *resolv_file)
 	int ret = -1;
 
 	int filed_num = 0;
-	int line_num = 0;
 
 	fp = fopen(resolv_file, "r");
 	if (fp == NULL) {
@@ -146,7 +145,6 @@ static int _smartdns_load_from_resolv_file(const char *resolv_file)
 	}
 
 	while (fgets(line, MAX_LINE_LEN, fp)) {
-		line_num++;
 		filed_num = sscanf(line, "%63s %1023[^\r\n]s", key, value);
 
 		if (filed_num != 2) {
@@ -379,6 +377,10 @@ static int _smartdns_create_cert(void)
 {
 	uid_t uid = 0;
 	gid_t gid = 0;
+	char san[PATH_MAX] = {0};
+	/* 13 month */
+	int validity_days = 13 * 30;
+	char ddns_san[DNS_MAX_CNAME_LEN] = {0};
 
 	if (dns_conf.need_cert == 0) {
 		return 0;
@@ -390,11 +392,38 @@ static int _smartdns_create_cert(void)
 
 	conf_get_conf_fullpath("smartdns-cert.pem", dns_conf.bind_ca_file, sizeof(dns_conf.bind_ca_file));
 	conf_get_conf_fullpath("smartdns-key.pem", dns_conf.bind_ca_key_file, sizeof(dns_conf.bind_ca_key_file));
+	conf_get_conf_fullpath("smartdns-root-key.pem", dns_conf.bind_root_ca_key_file,
+						   sizeof(dns_conf.bind_root_ca_key_file));
 	if (access(dns_conf.bind_ca_file, F_OK) == 0 && access(dns_conf.bind_ca_key_file, F_OK) == 0) {
-		return 0;
+		if (is_cert_valid(dns_conf.bind_ca_file)) {
+			return 0;
+		}
+
+		if (access(dns_conf.bind_root_ca_key_file, R_OK) != 0) {
+			tlog(TLOG_WARN, "root ca key file %s is not found, can not regenerate cert file.",
+				 dns_conf.bind_root_ca_key_file);
+			return 0;
+		}
+		unlink(dns_conf.bind_ca_file);
+		unlink(dns_conf.bind_ca_key_file);
+		tlog(TLOG_WARN, "regenerate cert with root ca key %s", dns_conf.bind_root_ca_key_file);
 	}
 
-	if (generate_cert_key(dns_conf.bind_ca_key_file, dns_conf.bind_ca_file, NULL, 365 * 3) != 0) {
+	if (dns_conf_get_ddns_domain()[0] != 0) {
+		snprintf(ddns_san, sizeof(ddns_san), "DNS:%s", dns_conf_get_ddns_domain());
+	}
+
+	if (generate_cert_san(san, sizeof(san), ddns_san) != 0) {
+		tlog(TLOG_WARN, "generate cert san failed.");
+		return -1;
+	}
+
+	if (dns_conf.bind_ca_validity_days > 0) {
+		validity_days = dns_conf.bind_ca_validity_days;
+	}
+
+	if (generate_cert_key(dns_conf.bind_ca_key_file, dns_conf.bind_ca_file, dns_conf.bind_root_ca_key_file, san,
+						  validity_days) != 0) {
 		tlog(TLOG_WARN, "Generate default ssl cert and key file failed. %s", strerror(errno));
 		return -1;
 	}
@@ -524,7 +553,14 @@ static int _smartdns_init_log(void)
 
 	unsigned int tlog_flag = TLOG_NONBLOCK;
 	if (enable_log_screen == 1) {
-		tlog_flag |= TLOG_SCREEN_COLOR;
+		tlog_flag |= TLOG_SCREEN;
+	}
+
+	if (dns_conf.log_color_mode) {
+		tlog_flag |= TLOG_SEGMENT;
+		if (enable_log_screen) {
+			tlog_flag |= TLOG_SCREEN_COLOR;
+		}
 	}
 
 	if (dns_conf.log_syslog) {
@@ -540,6 +576,7 @@ static int _smartdns_init_log(void)
 
 	if (enable_log_screen) {
 		tlog_setlogscreen(1);
+		verbose_screen = 1;
 	}
 
 	tlog_reg_log_output_func(_smartdns_tlog_output_callback, NULL);
@@ -786,14 +823,18 @@ static int _smartdns_create_datadir(void)
 	int unused __attribute__((unused)) = 0;
 
 	safe_strncpy(data_dir, dns_conf_get_data_dir(), PATH_MAX);
-	dir_name(data_dir);
 
 	if (get_uid_gid(&uid, &gid) != 0) {
 		return -1;
 	}
 
 	mkdir(data_dir, 0750);
-	if (stat(data_dir, &sb) == 0 && sb.st_uid == uid && sb.st_gid == gid && (sb.st_mode & 0700) == 0700) {
+	if (stat(data_dir, &sb) != 0) {
+		tlog(TLOG_DEBUG, "create dir %s failed, %s", data_dir, strerror(errno));
+		return -1;
+	}
+
+	if (sb.st_uid == uid && sb.st_gid == gid && (sb.st_mode & 0700) == 0700) {
 		return 0;
 	}
 
@@ -823,9 +864,13 @@ static int _set_rlimit(void)
 
 static int _smartdns_init_pre(void)
 {
+	int ret = -1;
 	_smartdns_create_logdir();
 	_smartdns_create_cache_dir();
-	_smartdns_create_datadir();
+	ret = _smartdns_create_datadir();
+	if (ret != 0) {
+		tlog(TLOG_DEBUG, "create data dir failed.");
+	}
 
 	_set_rlimit();
 
@@ -957,15 +1002,51 @@ void smartdns_restart(void)
 	dns_server_stop();
 }
 
+static const char *smartdns_exec_dir(void)
+{
+	static char start_dir[PATH_MAX] = {0};
+	if (start_dir[0] == 0) {
+		if (getcwd(start_dir, sizeof(start_dir)) == NULL) {
+			snprintf(start_dir, sizeof(start_dir), ".");
+		}
+	}
+	return start_dir;
+}
+
 static int smartdns_enter_monitor_mode(int argc, char *argv[], int no_deamon)
 {
+	char exec_path[PATH_MAX] = {0};
+
 	setenv("SMARTDNS_RESTART_ON_CRASH", "1", 1);
 	if (no_deamon == 1) {
 		setenv("SMARTDNS_NO_DAEMON", "1", 1);
 	}
-	execv(argv[0], argv);
-	tlog(TLOG_ERROR, "execv failed, %s", strerror(errno));
+
+	chdir(smartdns_exec_dir());
+	if (readlink("/proc/self/exe", exec_path, sizeof(exec_path) - 1) > 0) {
+		execv(exec_path, argv);
+	} else {
+		safe_strncpy(exec_path, argv[0], sizeof(exec_path));
+		execvp(exec_path, argv);
+	}
+
+	tlog(TLOG_ERROR, "execv failed, %s, %s", exec_path, strerror(errno));
 	return -1;
+}
+
+static int smartdns_init_workdir(void)
+{
+	smartdns_exec_dir();
+	const char *smartdns_workdir = getenv("SMARTDNS_WORKDIR");
+
+	if (smartdns_workdir != NULL) {
+		if (chdir(smartdns_workdir) != 0) {
+			fprintf(stderr, "chdir to %s failed: %s\n", smartdns_workdir, strerror(errno));
+			return 1;
+		}
+	}
+
+	return 0;
 }
 
 #ifdef TEST
@@ -983,9 +1064,10 @@ int smartdns_reg_post_func(smartdns_post_func func, void *arg)
 #define smartdns_test_notify(retval) smartdns_test_notify_func(fd_notify, retval)
 static void smartdns_test_notify_func(int fd_notify, uint64_t retval)
 {
+	int unused __attribute__((unused));
 	/* notify parent kickoff */
 	if (fd_notify > 0) {
-		write(fd_notify, &retval, sizeof(retval));
+		unused = write(fd_notify, &retval, sizeof(retval));
 	}
 
 	if (_smartdns_post != NULL) {
@@ -1020,6 +1102,10 @@ int smartdns_main(int argc, char *argv[])
 										   {"is-quic-supported", no_argument, NULL, 257},
 										   {"help", no_argument, NULL, 'h'},
 										   {NULL, 0, NULL, 0}};
+
+	if (smartdns_init_workdir() != 0) {
+		return 1;
+	}
 
 	safe_strncpy(config_file, SMARTDNS_CONF_FILE, MAX_LINE_LEN);
 
@@ -1100,6 +1186,11 @@ int smartdns_main(int argc, char *argv[])
 		unsetenv("SMARTDNS_NO_DAEMON");
 	}
 
+	/* started by systemd, do not restart when crash */
+	if (getenv("INVOCATION_ID") != NULL) {
+		restart_when_crash = 0;
+	}
+
 	smartdns_run_monitor_ret init_ret = _smartdns_run_monitor(restart_when_crash, is_run_as_daemon);
 	if (init_ret != SMARTDNS_RUN_MONITOR_OK) {
 		if (init_ret == SMARTDNS_RUN_MONITOR_EXIT) {
@@ -1117,6 +1208,11 @@ int smartdns_main(int argc, char *argv[])
 	if (ret != 0) {
 		fprintf(stderr, "load config failed.\n");
 		goto errout;
+	}
+
+	/* started by systemd, do not restart when crash */
+	if (getenv("INVOCATION_ID") != NULL) {
+		dns_conf.dns_restart_on_crash = 0;
 	}
 
 	if (dns_conf.dns_restart_on_crash && restart_when_crash == 0) {
@@ -1171,7 +1267,7 @@ int smartdns_main(int argc, char *argv[])
 
 	ret = _smartdns_init_pre();
 	if (ret != 0) {
-		fprintf(stderr, "init failed.\n");
+		fprintf(stderr, "smartdns init failed.\n");
 		goto errout;
 	}
 

@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2024 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -36,6 +36,8 @@ pub struct SmartdnsPlugin {
     data_conf: Mutex<DataServerConfig>,
 
     runtime: Arc<Runtime>,
+
+    is_start: Mutex<bool>,
 }
 
 impl SmartdnsPlugin {
@@ -53,6 +55,8 @@ impl SmartdnsPlugin {
             data_server_ctl: Arc::new(DataServerControl::new()),
             data_conf: Mutex::new(DataServerConfig::new()),
             runtime: Arc::new(rt),
+
+            is_start: Mutex::new(false),
         });
 
         plugin.http_server_ctl.set_plugin(plugin.clone());
@@ -95,7 +99,7 @@ impl SmartdnsPlugin {
 
         let www_root = Plugin::dns_conf_plugin_config("smartdns-ui.www-root");
         if let Some(www_root) = www_root {
-            http_conf.http_root = www_root;
+            http_conf.http_root = smartdns_conf_get_conf_fullpath(&www_root);
         }
 
         let ip = Plugin::dns_conf_plugin_config("smartdns-ui.ip");
@@ -110,9 +114,12 @@ impl SmartdnsPlugin {
         if let Some(root) = matches.opt_str("r") {
             http_conf.http_root = root;
         }
-        dns_log!(LogLevel::INFO, "www root: {}", http_conf.http_root);
 
-        if let Some(token_expire) = matches.opt_str("token-expire") {
+        let mut token_expire = Plugin::dns_conf_plugin_config("smartdns-ui.token-expire");
+        if token_expire.is_none() {
+            token_expire = matches.opt_str("token-expire");
+        }
+        if let Some(token_expire) = token_expire {
             let v = token_expire.parse::<u32>();
             if let Err(e) = v {
                 dns_log!(
@@ -126,7 +133,7 @@ impl SmartdnsPlugin {
         }
 
         if let Some(data_dir) = matches.opt_str("data-dir") {
-            data_conf.data_root = data_dir;
+            data_conf.data_path = data_dir;
         }
 
         Ok(())
@@ -146,7 +153,12 @@ impl SmartdnsPlugin {
     }
 
     pub fn start(&self, args: &Vec<String>) -> Result<(), Box<dyn Error>> {
+        dns_log!(LogLevel::INFO, "start smartdns-ui server.");
+        let mut is_start = self.is_start.lock().unwrap();
+        *is_start = true;
+
         self.parser_args(args)?;
+        self.load_config()?;
         self.data_server_ctl
             .init_db(&self.data_conf.lock().unwrap())?;
         self.load_config()?;
@@ -158,6 +170,13 @@ impl SmartdnsPlugin {
     }
 
     pub fn stop(&self) {
+        let mut is_start = self.is_start.lock().unwrap();
+        if !*is_start {
+            return;
+        }
+        *is_start = false;
+        
+        dns_log!(LogLevel::INFO, "stop smartdns-ui server.");
         self.http_server_ctl.stop_http_server();
         self.data_server_ctl.stop_data_server();
     }
@@ -165,7 +184,7 @@ impl SmartdnsPlugin {
     pub fn query_complete(&self, request: Box<dyn DnsRequest>) -> Result<(), Box<dyn Error>> {
         let ret = self.data_server_ctl.send_request(request);
         if let Err(e) = ret {
-            dns_log!(LogLevel::ERROR, "send request error: {}", e.to_string());
+            dns_log!(LogLevel::DEBUG, "send request error: {}", e.to_string());
             return Err(e);
         }
 
@@ -174,6 +193,10 @@ impl SmartdnsPlugin {
 
     pub fn server_log(&self, level: LogLevel, msg: &str, msg_len: i32) {
         self.data_server_ctl.server_log(level, msg, msg_len);
+    }
+
+    pub fn server_audit_log(&self, msg: &str, msg_len: i32) {
+        self.data_server_ctl.server_audit_log(msg, msg_len);
     }
 }
 
@@ -208,6 +231,10 @@ impl SmartdnsOperations for SmartdnsPluginImpl {
 
     fn server_log(&self, level: LogLevel, msg: &str, msg_len: i32) {
         self.plugin.server_log(level, msg, msg_len);
+    }
+
+    fn server_audit_log(&self, msg: &str, msg_len: i32) {
+        self.plugin.server_audit_log(msg, msg_len);
     }
 
     fn server_init(&mut self, args: &Vec<String>) -> Result<(), Box<dyn Error>> {

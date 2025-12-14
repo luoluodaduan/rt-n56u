@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2024 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -86,4 +86,23 @@ pub fn verify_password(password: &str, password_hash: &str) -> bool {
     Pbkdf2
         .verify_password(password.as_bytes(), &parsed_hash)
         .is_ok()
+}
+
+pub fn get_page_size() -> usize {
+    // Use libc to get the system page size
+    unsafe { libc::sysconf(libc::_SC_PAGESIZE) as usize }
+}
+
+pub fn is_dir_writable(path: &str) -> bool {
+    let path = std::ffi::CString::new(path).unwrap();
+    unsafe { libc::access(path.as_ptr(), libc::W_OK) == 0 }
+}
+
+pub fn is_ipv6_supported() -> bool {
+    let sock = unsafe { libc::socket(libc::AF_INET6, libc::SOCK_STREAM, 0) };
+    if sock < 0 {
+        return false;
+    }
+    unsafe { libc::close(sock) };
+    true
 }

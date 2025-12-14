@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2024 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -160,6 +160,40 @@ impl ToString for DnsServerType {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum DnsServerTrustStatus {
+    TRUST_UNKNOW,
+    TRUST_NOT_APPLICABLE,
+    TRUST_VERIFY_FAILED,
+    TRUST_INSECURE,
+    TRUST_SECURE,
+}
+
+impl From<u32> for DnsServerTrustStatus {
+    fn from(t: u32) -> DnsServerTrustStatus {
+        match t {
+            0 => DnsServerTrustStatus::TRUST_UNKNOW,
+            1 => DnsServerTrustStatus::TRUST_NOT_APPLICABLE,
+            2 => DnsServerTrustStatus::TRUST_VERIFY_FAILED,
+            3 => DnsServerTrustStatus::TRUST_INSECURE,
+            4 => DnsServerTrustStatus::TRUST_SECURE,
+            _ => DnsServerTrustStatus::TRUST_UNKNOW,
+        }
+    }
+}
+
+impl ToString for DnsServerTrustStatus {
+    fn to_string(&self) -> String {
+        match self {
+            DnsServerTrustStatus::TRUST_UNKNOW => "Unknown".to_string(),
+            DnsServerTrustStatus::TRUST_NOT_APPLICABLE => "Not Applicable".to_string(),
+            DnsServerTrustStatus::TRUST_VERIFY_FAILED => "Verify Failed".to_string(),
+            DnsServerTrustStatus::TRUST_INSECURE => "Insecure".to_string(),
+            DnsServerTrustStatus::TRUST_SECURE => "Secure".to_string(),
+        }
+    }
+}
+
 #[macro_export]
 macro_rules! dns_log {
     ($level:expr, $($arg:tt)*) => {
@@ -183,6 +217,10 @@ pub fn dns_log_get_level() -> LogLevel {
         let leve = smartdns_c::smartdns_plugin_log_getlevel();
         LogLevel::try_from(leve as u32).unwrap()
     }
+}
+
+pub fn dns_audit_log_enabled() -> bool {
+    unsafe { smartdns_c::smartdns_plugin_is_audit_enabled() != 0 }
 }
 
 pub fn dns_log_out(level: LogLevel, file: &str, line: u32, message: &str) {
@@ -266,6 +304,23 @@ pub fn smartdns_enable_update_neighbour(enable: bool) {
     }
 }
 
+pub fn smartdns_conf_get_conf_fullpath(path: &str) -> String {
+    let path = CString::new(path).expect("Failed to convert to CString");
+    unsafe {
+        let mut buffer = [0u8; 4096];
+        smartdns_c::conf_get_conf_fullpath(
+            path.as_ptr(),
+            buffer.as_mut_ptr() as *mut c_char,
+            buffer.len().try_into().unwrap(),
+        );
+        let conf_fullpath = std::ffi::CStr::from_ptr(buffer.as_ptr() as *const c_char)
+            .to_string_lossy()
+            .into_owned();
+
+        conf_fullpath
+    }
+}
+
 pub fn smartdns_server_stop() {
     unsafe {
         smartdns_c::smartdns_server_stop();
@@ -280,6 +335,7 @@ static SMARTDNS_OPS: smartdns_c::smartdns_operations = smartdns_c::smartdns_oper
     server_recv: None,
     server_query_complete: Some(dns_request_complete),
     server_log: Some(dns_server_log),
+    server_audit_log: Some(dns_server_audit_log),
 };
 
 #[no_mangle]
@@ -322,6 +378,25 @@ extern "C" fn dns_server_log(
 }
 
 #[no_mangle]
+extern "C" fn dns_server_audit_log(msg: *const c_char, msg_len: i32) {
+    unsafe {
+        let plugin_addr = std::ptr::addr_of_mut!(PLUGIN);
+        let ops = (*plugin_addr).ops.as_ref();
+        if let None = ops {
+            return;
+        }
+
+        let raw_msg = std::slice::from_raw_parts(msg as *const u8, msg_len as usize + 1);
+        let msg = std::ffi::CStr::from_bytes_with_nul_unchecked(raw_msg)
+            .to_string_lossy()
+            .into_owned();
+
+        let ops = ops.unwrap();
+        ops.server_audit_log(msg.as_str(), msg_len as i32);
+    }
+}
+
+#[no_mangle]
 extern "C" fn dns_plugin_init(plugin: *mut smartdns_c::dns_plugin) -> i32 {
     unsafe {
         let plugin_addr = std::ptr::addr_of_mut!(PLUGIN);
@@ -333,7 +408,8 @@ extern "C" fn dns_plugin_init(plugin: *mut smartdns_c::dns_plugin) -> i32 {
             .unwrap()
             .server_init((*plugin_addr).get_args());
         if let Err(e) = ret {
-            dns_log!(LogLevel::ERROR, "server init error: {}", e);
+            dns_log!(LogLevel::ERROR, "{}", e.to_string());
+            dns_log!(LogLevel::ERROR, "server init failed.");
             return -1;
         }
     }
@@ -349,6 +425,11 @@ extern "C" fn dns_plugin_exit(_plugin: *mut smartdns_c::dns_plugin) -> i32 {
         (*plugin_addr).ops.as_mut().unwrap().server_exit();
     }
     return 0;
+}
+
+#[no_mangle]
+extern "C" fn dns_plugin_api_version() -> u32 {
+    smartdns_c::SMARTDNS_PLUGIN_API_VERSION
 }
 
 pub trait DnsRequest: Send + Sync {
@@ -679,6 +760,14 @@ impl DnsUpstreamServer {
         }
     }
 
+    pub fn get_server_security_status(&self) -> DnsServerTrustStatus {
+        unsafe {
+            let t = smartdns_c::dns_client_get_server_security_status(self.server_info)
+                as smartdns_c::dns_server_security_status;
+            DnsServerTrustStatus::from(t)
+        }
+    }
+
     pub fn get_groups(&self) -> Vec<String> {
         let groups = Vec::new();
         groups
@@ -710,6 +799,7 @@ unsafe impl Send for DnsUpstreamServer {}
 pub trait SmartdnsOperations {
     fn server_query_complete(&self, request: Box<dyn DnsRequest>);
     fn server_log(&self, level: LogLevel, msg: &str, msg_len: i32);
+    fn server_audit_log(&self, msg: &str, msg_len: i32);
     fn server_init(&mut self, args: &Vec<String>) -> Result<(), Box<dyn Error>>;
     fn server_exit(&mut self);
 }

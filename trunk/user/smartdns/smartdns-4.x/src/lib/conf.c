@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2024 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "conf.h"
+#include "smartdns/lib/conf.h"
 #include <errno.h>
 #include <getopt.h>
 #include <libgen.h>
@@ -207,7 +207,7 @@ int conf_size(const char *item, void *data, int argc, char *argv[])
 		return -1;
 	}
 
-	size = num * base;
+	size = (size_t)num * base;
 	if (size > item_size->max) {
 		size = item_size->max;
 	} else if (size < item_size->min) {
@@ -240,7 +240,7 @@ int conf_ssize(const char *item, void *data, int argc, char *argv[])
 	}
 
 	num = atoi(value);
-	size = num * base;
+	size = (ssize_t)num * base;
 	if (size > item_size->max) {
 		size = item_size->max;
 	} else if (size < item_size->min) {
@@ -286,9 +286,9 @@ int conf_enum(const char *item, void *data, int argc, char *argv[])
 
 void conf_getopt_reset(void)
 {
-	static struct option long_options[] = {{"-", 0, 0, 0}, {0, 0, 0, 0}};
+	static struct option long_options[] = {{"-", 0, NULL, 0}, {NULL, 0, NULL, 0}};
 	int argc = 2;
-	char *argv[3] = {"reset", "", 0};
+	char *argv[3] = {"reset", "", NULL};
 
 	optind = 0;
 	opterr = 0;
@@ -448,7 +448,7 @@ static int conf_parse_args(char *key, char *value, int *argc, char **argv)
 	}
 
 	*argc = count;
-	argv[count] = 0;
+	argv[count] = NULL;
 
 	return 0;
 }
@@ -469,12 +469,14 @@ static int load_conf_printf(const char *key, const char *value, const char *file
 	return 0;
 }
 
-static int load_conf_file(const char *file, struct config_item *items, conf_error_handler handler)
+static int load_conf_file(const char *file, const struct config_item *items, conf_error_handler handler)
 {
 	FILE *fp = NULL;
 	char line[MAX_LINE_LEN + MAX_KEY_LEN];
 	char key[MAX_KEY_LEN];
 	char value[MAX_LINE_LEN];
+	int value_begin = 0, value_end = 0;
+	int value_len = 0;
 	int filed_num = 0;
 	int i = 0;
 	int last_item_index = -1;
@@ -541,9 +543,24 @@ static int load_conf_file(const char *file, struct config_item *items, conf_erro
 		is_last_line_wrap = 0;
 		key[0] = '\0';
 		value[0] = '\0';
-		filed_num = sscanf(line, "%63s %4095[^\r\n]s", key, value);
+		filed_num = sscanf(line, "%63s %n%4095[^\r\n]%n", key, &value_begin, value, &value_end);
 		if (filed_num <= 0) {
 			continue;
+		}
+
+		/* remove suffix space of value */
+		value_len = value_end - value_begin;
+		if (value_len < 0) {
+			continue;
+		}
+
+		for (i = value_len - 1; i >= 0; i--) {
+			if (value[i] == ' ' || value[i] == '\t') {
+				value[i] = '\0';
+				value_len--;
+			} else {
+				break;
+			}
 		}
 
 		/* comment, skip */
@@ -619,7 +636,7 @@ errout:
 	return -1;
 }
 
-int load_conf(const char *file, struct config_item items[], conf_error_handler handler)
+int load_conf(const char *file, const struct config_item items[], conf_error_handler handler)
 {
 	return load_conf_file(file, items, handler);
 }

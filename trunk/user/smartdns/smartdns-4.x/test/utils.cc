@@ -1,5 +1,5 @@
 #include "include/utils.h"
-#include "util.h"
+#include "smartdns/util.h"
 #include <arpa/inet.h>
 #include <ifaddrs.h>
 #include <netinet/in.h>
@@ -34,6 +34,19 @@ TempFile::~TempFile()
 
 	if (path_.length() > 0) {
 		unlink(path_.c_str());
+	}
+}
+
+void TempFile::Close()
+{
+	if (ofs_.is_open()) {
+		ofs_.close();
+		ofs_.clear();
+	}
+
+	if (path_.length() > 0) {
+		unlink(path_.c_str());
+		path_.clear();
 	}
 }
 

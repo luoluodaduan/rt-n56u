@@ -1,5 +1,5 @@
 
-# Copyright (C) 2018-2024 Ruilin Peng (Nick) <pymumu@gmail.com>.
+# Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
 #
 # smartdns is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,6 +22,7 @@ SMARTDNS_TEST_LIB=$(SMARTDNS_SRC_DIR)/libsmartdns-test.a
 CXXFLAGS += -g
 CXXFLAGS += -DTEST
 CXXFLAGS += -I./ -I../src -I../src/include
+CXXFLAGS += -fno-omit-frame-pointer -Wstrict-aliasing -funwind-tables
 
 TEST_SOURCES := $(wildcard *.cc) $(wildcard */*.cc) $(wildcard */*/*.cc)
 TEST_OBJECTS := $(patsubst %.cc, %.o, $(TEST_SOURCES))
@@ -29,8 +30,11 @@ OBJS += $(TEST_OBJECTS)
 
 SMARTDNS_SRC_FILES := $(wildcard $(SMARTDNS_SRC_DIR)/*.c) $(wildcard $(SMARTDNS_SRC_DIR)/*.h) $(wildcard $(SMARTDNS_SRC_DIR)/lib/*.c)
 
+ifeq ($(filter -j,$(MAKEFLAGS)),)
+MAKEFLAGS += -j$(shell nproc)
+endif
 
-LDFLAGS += -lssl -lcrypto -lpthread -ldl -lgtest -lstdc++ -lm
+LDFLAGS += -lssl -lcrypto -lpthread -ldl -lgtest -lstdc++ -lm -rdynamic
 LDFLAGS += $(EXTRA_LDFLAGS)
 
 .PHONY: all clean test $(SMARTDNS_TEST_LIB)
@@ -44,7 +48,7 @@ test: $(BIN)
 	./$(BIN)
 
 $(SMARTDNS_TEST_LIB): 
-	$(MAKE) -C $(SMARTDNS_SRC_DIR) libsmartdns-test.a
+	$(MAKE) DEBUG=1 -C $(SMARTDNS_SRC_DIR) libsmartdns-test.a
 
 clean:
 	$(RM) $(OBJS) $(BIN)

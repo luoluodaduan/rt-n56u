@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2024 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -294,22 +294,31 @@ pub fn api_msg_parse_client_list(data: &str) -> Result<Vec<ClientData>, Box<dyn 
     Ok(client_list)
 }
 
-pub fn api_msg_gen_client_list(client_list: &Vec<ClientData>, total_count: u32) -> String {
+pub fn api_msg_gen_json_object_client(client: &ClientData) -> serde_json::Value {
+    json!({
+        "id": client.id,
+        "client_ip": client.client_ip,
+        "mac": client.mac,
+        "hostname": client.hostname,
+        "last_query_timestamp": client.last_query_timestamp,
+    })
+}
+
+pub fn api_msg_gen_client_list(
+    client_list_result: &QueryClientListResult,
+    total_page: u64,
+    total_count: u64,
+) -> String {
     let json_str = json!({
-        "list_count": client_list.len(),
+        "list_count": client_list_result.client_list.len(),
+        "total_page": total_page,
         "total_count": total_count,
+        "step_by_cursor": client_list_result.step_by_cursor,
         "client_list":
-            client_list
+        client_list_result.client_list
                 .iter()
                 .map(|x| {
-                    let s = json!({
-                        "id": x.id,
-                        "client_ip": x.client_ip,
-                        "mac": x.mac,
-                        "hostname": x.hostname,
-                        "last_query_timestamp": x.last_query_timestamp,
-                    });
-                    s
+                    api_msg_gen_json_object_client(x)
                 })
                 .collect::<Vec<serde_json::Value>>()
 
@@ -431,6 +440,7 @@ pub fn api_msg_gen_upstream_server_list(upstream_server_list: &Vec<UpstreamServe
                         "query_success_rate": x.query_success_rate,
                         "avg_time": x.avg_time,
                         "status": x.status,
+                        "security": x.security,
                     });
                     s
                 })
@@ -501,6 +511,11 @@ pub fn api_msg_parse_upstream_server_list(
             return Err("status not found".into());
         }
 
+        let security = item["security"].as_str();
+        if security.is_none() {
+            return Err("security not found".into());
+        }
+
         upstream_server_list.push(UpstreamServerInfo {
             host: host.unwrap().to_string(),
             ip: ip.unwrap().to_string(),
@@ -512,6 +527,7 @@ pub fn api_msg_parse_upstream_server_list(
             query_success_rate: query_success_rate.unwrap(),
             avg_time: avg_time.unwrap(),
             status: status.unwrap().to_string(),
+            security: security.unwrap().to_string(),
         });
     }
 
@@ -681,6 +697,8 @@ pub fn api_msg_gen_metrics_data(data: &MetricsData) -> String {
     let json_str = json!({
         "total_query_count": data.total_query_count,
         "block_query_count": data.block_query_count,
+        "request_drop_count": data.request_drop_count,
+        "fail_query_count": data.fail_query_count,
         "avg_query_time": data.avg_query_time,
         "cache_hit_rate": data.cache_hit_rate,
         "cache_number": data.cache_number,
@@ -703,6 +721,16 @@ pub fn api_msg_parse_metrics_data(data: &str) -> Result<MetricsData, Box<dyn Err
     let block_query_count = v["block_query_count"].as_u64();
     if block_query_count.is_none() {
         return Err("block_query_count not found".into());
+    }
+
+    let request_drop_count = v["request_drop_count"].as_u64();
+    if request_drop_count.is_none() {
+        return Err("request_drop_count not found".into());
+    }
+
+    let fail_query_count = v["fail_query_count"].as_u64();
+    if fail_query_count.is_none() {
+        return Err("fail_query_count not found".into());
     }
 
     let avg_query_time = v["avg_query_time"].as_f64();
@@ -740,6 +768,8 @@ pub fn api_msg_parse_metrics_data(data: &str) -> Result<MetricsData, Box<dyn Err
     Ok(MetricsData {
         total_query_count: total_query_count.unwrap() as u64,
         block_query_count: block_query_count.unwrap() as u64,
+        request_drop_count: request_drop_count.unwrap() as u64,
+        fail_query_count: fail_query_count.unwrap() as u64,
         avg_query_time: avg_query_time.unwrap(),
         cache_hit_rate: cache_hit_rate.unwrap(),
         cache_number: cache_number.unwrap() as u64,
@@ -796,7 +826,6 @@ pub fn api_msg_parse_stats_overview(data: &str) -> Result<OverviewData, Box<dyn 
         startup_timestamp: startup_timestamp.unwrap() as u64,
         free_disk_space: free_disk_space.unwrap() as u64,
         is_process_suspended: is_process_suspended.unwrap(),
-
     })
 }
 
@@ -818,9 +847,7 @@ pub fn api_msg_gen_hourly_query_count(hourly_count: &HourlyQueryCount) -> String
     json_str.to_string()
 }
 
-pub fn api_msg_parse_hourly_query_count(
-    data: &str,
-) -> Result<HourlyQueryCount, Box<dyn Error>> {
+pub fn api_msg_parse_hourly_query_count(data: &str) -> Result<HourlyQueryCount, Box<dyn Error>> {
     let v: serde_json::Value = serde_json::from_str(data)?;
     let query_timestamp = v["query_timestamp"].as_u64();
     if query_timestamp.is_none() {

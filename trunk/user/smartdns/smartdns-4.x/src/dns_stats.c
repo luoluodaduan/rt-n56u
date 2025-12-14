@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2024 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,13 +16,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "dns_stats.h"
-#include "stddef.h"
-#include "string.h"
+#include "smartdns/dns_stats.h"
+#include <stddef.h>
+#include <string.h>
 
 struct dns_stats dns_stats;
-
-#define SAMPLE_PERIOD 5
 
 void dns_stats_avg_time_update_add(struct dns_stats_avg_time *avg_time, uint64_t time)
 {
@@ -44,30 +42,29 @@ void dns_stats_avg_time_update(struct dns_stats_avg_time *avg_time)
 		return;
 	}
 
-	float sample_avg = (float)time / count;
+	double sample_avg = (double)time / count;
 
-	if (avg_time->avg_time == 0) {
+	if (avg_time->count == 0) {
 		avg_time->avg_time = sample_avg;
-	} else {
-		int base = 1000;
-		if (count > 100) {
-			count = 100;
-		}
-
-		float weight_new = (float)count / base;
-		float weight_prev = 1.0 - weight_new;
-
-		avg_time->avg_time = (avg_time->avg_time * weight_prev) + (sample_avg * weight_new);
+		avg_time->count = count;
+		return;
 	}
+
+	int base = 1000;
+	if (count > 100) {
+		count = 100;
+	}
+
+	double weight_new = (double)count / base;
+	double weight_prev = 1.0 - weight_new;
+
+	avg_time->avg_time = (avg_time->avg_time * weight_prev) + (sample_avg * weight_new);
+	avg_time->count += count;
 }
 
 void dns_stats_period_run_second(void)
 {
-	static int last_total = 0;
-	last_total++;
-	if (last_total % SAMPLE_PERIOD == 0) {
-		dns_stats_avg_time_update(&dns_stats.avg_time);
-	}
+	dns_stats_avg_time_update(&dns_stats.avg_time);
 }
 
 float dns_stats_avg_time_get(void)

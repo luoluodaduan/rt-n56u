@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2024 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -92,6 +92,7 @@ impl API {
         api.register(Method::GET, "/api/log/stream", true, APIRoute!(API::api_log_stream));
         api.register(Method::PUT, "/api/log/level", true, APIRoute!(API::api_log_set_level));
         api.register(Method::GET, "/api/log/level", true, APIRoute!(API::api_log_get_level));
+        api.register(Method::GET, "/api/log/audit/stream", true, APIRoute!(API::api_audit_log_stream));
         api.register(Method::GET, "/api/server/version", false, APIRoute!(API::api_server_version));
         api.register(Method::GET, "/api/upstream-server", true, APIRoute!(API::api_upstream_server_get_list));
         api.register(Method::GET, "/api/config/settings", true, APIRoute!(API::api_config_get_settings));
@@ -233,6 +234,7 @@ impl API {
         _param: APIRouteParam,
         req: Request<body::Incoming>,
     ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let is_https = this.is_https_server();
         let token = HttpServer::get_token_from_header(&req)?;
         let unauth_response =
             || API::response_error(StatusCode::UNAUTHORIZED, "Incorrect username or password.");
@@ -268,10 +270,14 @@ impl API {
 
         let cookie_token = format!("Bearer {}", token_new.token);
         let token_urlencode = urlencoding::encode(cookie_token.as_str());
-        let cookie = format!(
+        let mut cookie = format!(
             "token={}; HttpOnly; Max-Age={}; Path={}",
             token_urlencode, token_new.expire, REST_API_PATH
         );
+
+        if is_https && conf.enable_cors {
+            cookie.push_str("; SameSite=None; Secure");
+        }
 
         resp.as_mut()
             .unwrap()
@@ -293,6 +299,7 @@ impl API {
         _param: APIRouteParam,
         req: Request<body::Incoming>,
     ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let is_https = this.is_https_server();
         let whole_body = String::from_utf8(req.into_body().collect().await?.to_bytes().into())?;
         let userinfo = api_msg_parse_auth(whole_body.as_str());
         if let Err(e) = userinfo {
@@ -334,10 +341,14 @@ impl API {
 
         let cookie_token = format!("Bearer {}", token.token);
         let token_urlencode = urlencoding::encode(cookie_token.as_str());
-        let cookie = format!(
+        let mut cookie = format!(
             "token={}; HttpOnly; Max-Age={}; Path={}",
             token_urlencode, token.expire, REST_API_PATH
         );
+
+        if is_https && conf.enable_cors {
+            cookie.push_str("; SameSite=None; Secure");
+        }
 
         resp.as_mut()
             .unwrap()
@@ -640,7 +651,11 @@ impl API {
         if cursor.is_some() || total_count.is_some() {
             let param_cursor = DomainListGetParamCursor {
                 id: if cursor.is_some() { cursor } else { None },
-                total_count: total_count.unwrap(),
+                total_count: if total_count.is_some() {
+                    total_count.unwrap()
+                } else {
+                    0
+                },
                 direction: cursor_direction,
             };
             param.cursor = Some(param_cursor);
@@ -717,11 +732,65 @@ impl API {
     async fn api_client_get_list(
         this: Arc<HttpServer>,
         _param: APIRouteParam,
-        _req: Request<body::Incoming>,
+        req: Request<body::Incoming>,
     ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let params = API::get_params(&req);
+
+        let page_num = API::params_get_value_default(&params, "page_num", 1 as u64)?;
+        let page_size = API::params_get_value_default(&params, "page_size", 10 as u64)?;
+        if page_num == 0 || page_size == 0 {
+            return API::response_error(
+                StatusCode::BAD_REQUEST,
+                "Invalid parameter: page_num or page_size",
+            );
+        }
+
+        let id = API::params_get_value(&params, "id");
+        let client_ip = API::params_get_value(&params, "client_ip");
+        let hostname = API::params_get_value(&params, "hostname");
+        let mac = API::params_get_value(&params, "mac");
+        let timestamp_after = API::params_get_value(&params, "timestamp_after");
+        let timestamp_before = API::params_get_value(&params, "timestamp_before");
+        let order = API::params_get_value(&params, "order");
+        let cursor = API::params_get_value(&params, "cursor");
+        let cursor_direction =
+            match API::params_get_value_default(&params, "cursor_direction", "next".to_string()) {
+                Ok(v) => v,
+                Err(e) => {
+                    return Ok(e.to_response());
+                }
+            };
+        let total_count = API::params_get_value(&params, "total_count");
+
+        let mut param = ClientListGetParam::new();
+        param.id = id;
+        param.page_num = page_num;
+        param.page_size = page_size;
+        param.client_ip = client_ip;
+        param.hostname = hostname;
+        param.mac = mac;
+        param.order = order;
+        param.timestamp_after = timestamp_after;
+        param.timestamp_before = timestamp_before;
+
+        if cursor.is_some() || total_count.is_some() {
+            let param_cursor = ClientListGetParamCursor {
+                id: if cursor.is_some() { cursor } else { None },
+                total_count: if total_count.is_some() {
+                    total_count.unwrap()
+                } else {
+                    0
+                },
+                direction: cursor_direction,
+            };
+            param.cursor = Some(param_cursor);
+        }
+
         let data_server = this.get_data_server();
         let ret = API::call_blocking(this, move || {
-            let ret = data_server.get_client_list();
+            let ret = data_server
+                .get_client_list(&param)
+                .map_err(|e| e.to_string());
             if let Err(e) = ret {
                 return Err(e.to_string());
             }
@@ -729,21 +798,27 @@ impl API {
             let ret = ret.unwrap();
 
             return Ok(ret);
-        }).await;
+        })
+        .await;
 
-        let ret = match ret {
-            Ok(v) => v,
-            Err(e) => {
-                return API::response_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().as_str());
-            },
-        };
-    
+        if let Err(e) = ret {
+            return API::response_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().as_str());
+        }
+
+        let ret = ret.unwrap();
         if let Err(e) = ret {
             return API::response_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().as_str());
         }
 
         let client_list = ret.unwrap();
-        let body = api_msg_gen_client_list(&client_list, client_list.len() as u32);
+        let list_count = client_list.total_count;
+        let mut total_page = list_count / page_size;
+        if list_count % page_size != 0 {
+            total_page += 1;
+        }
+
+        let total_count = client_list.total_count;
+        let body = api_msg_gen_client_list(&client_list, total_page, total_count);
 
         API::response_build(StatusCode::OK, body)
     }
@@ -759,6 +834,27 @@ impl API {
 
             tokio::spawn(async move {
                 if let Err(e) = http_server_stream::serve_log_stream(this, websocket).await {
+                    dns_log!(LogLevel::DEBUG, "Error in websocket connection: {e}");
+                }
+            });
+
+            Ok(response)
+        } else {
+            return API::response_error(StatusCode::BAD_REQUEST, "Need websocket upgrade.");
+        }
+    }
+
+    async fn api_audit_log_stream(
+        this: Arc<HttpServer>,
+        _param: APIRouteParam,
+        mut req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        if hyper_tungstenite::is_upgrade_request(&req) {
+            let (response, websocket) = hyper_tungstenite::upgrade(&mut req, None)
+                .map_err(|e| HttpError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+            tokio::spawn(async move {
+                if let Err(e) = http_server_stream::serve_audit_log_stream(this, websocket).await {
                     dns_log!(LogLevel::DEBUG, "Error in websocket connection: {e}");
                 }
             });
@@ -846,7 +942,7 @@ impl API {
         }
 
         if key.is_some() {
-            let key : String = key.unwrap();
+            let key: String = key.unwrap();
             let value = settings.get(key.as_str());
             if value.is_none() {
                 return API::response_error(StatusCode::NOT_FOUND, "Not found");
@@ -1134,7 +1230,7 @@ impl API {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        let rt = this.get_data_server().get_plugin().get_runtime();
+        let rt = this.get_data_server().get_plugin().unwrap().get_runtime();
 
         let ret = rt.spawn_blocking(move || -> R {
             return func();

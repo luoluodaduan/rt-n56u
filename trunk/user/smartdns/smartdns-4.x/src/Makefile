@@ -1,5 +1,4 @@
-
-# Copyright (C) 2018-2024 Ruilin Peng (Nick) <pymumu@gmail.com>.
+# Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
 #
 # smartdns is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -17,11 +16,16 @@
 BIN=smartdns
 SMARTDNS_LIB=libsmartdns.a
 SMARTDNS_TEST_LIB=libsmartdns-test.a
-OBJS_LIB=$(patsubst %.c,%.o,$(wildcard lib/*.c))
-OBJS_MAIN=$(filter-out main.o, $(patsubst %.c,%.o,$(wildcard *.c)))
-TEST_OBJS=$(patsubst %.o,%_test.o,$(OBJS_MAIN) $(OBJS_LIB))
+# libs without main.o
+OBJS=$(filter-out main.o, $(patsubst %.c,%.o,$(wildcard *.c)) $(patsubst %.c,%.o,$(wildcard */*.c)))
+# libs without lib/%.o
+LINT_OBJS=$(filter-out lib/%.o, $(OBJS))
+TEST_OBJS=$(patsubst %.o,%_test.o,$(OBJS))
 MAIN_OBJ = main.o
-OBJS=$(OBJS_MAIN) $(OBJS_LIB)
+
+ifeq ($(filter -j,$(MAKEFLAGS)),)
+MAKEFLAGS += -j$(shell nproc)
+endif
 
 # cflags
 ifndef CFLAGS
@@ -34,7 +38,7 @@ ifndef CFLAGS
 endif
 
 HASH := \#
-HAS_UNWIND := $(shell echo '$(HASH)include <unwind.h>\nvoid main() { _Unwind_Backtrace(0, 0);}' | $(CC) -x c - -o /dev/null >/dev/null 2>&1 && echo 1 || echo 0)
+HAS_UNWIND := $(shell printf '$(HASH)include <unwind.h>\nvoid main() { _Unwind_Backtrace(0, 0);}' | $(CC) -x c - -o /dev/null >/dev/null 2>&1 && echo -n 1 || echo -n 0)
 ifeq ($(HAS_UNWIND), 1)
 override CFLAGS += -DHAVE_UNWIND_BACKTRACE
 endif
@@ -74,6 +78,13 @@ ifdef STATIC
 else
  override LDFLAGS += -lssl -lcrypto -lpthread -ldl -lm -rdynamic
 endif
+
+USE_ATOMIC := $(shell printf '$(HASH)include <stdint.h>\nvoid main() { uint64_t value=0;__atomic_add_fetch(&value, 1, __ATOMIC_SEQ_CST);__atomic_load_n(&value,__ATOMIC_SEQ_CST);}' | $(CC) -x c - -o /dev/null >/dev/null 2>&1 && echo -n 1 || echo -n 0)
+ifeq ($(USE_ATOMIC), 0)
+ override CFLAGS += -DUSE_ATOMIC
+ override LDFLAGS += -latomic 
+endif
+
 override LDFLAGS += $(EXTRA_LDFLAGS)
 
 .PHONY: all clean
@@ -92,8 +103,19 @@ $(SMARTDNS_TEST_LIB): $(TEST_OBJS)
 $(SMARTDNS_LIB): $(OBJS)
 	$(AR) rcs $@ $^
 
+clang-tidy-parallel:
+	@echo "Running clang-tidy with $(shell nproc) parallel jobs..."
+	@printf '%s\n' $(LINT_OBJS:.o=.c) | xargs -P $(shell nproc) -I {} clang-tidy {} -- $(CFLAGS)
+
 clang-tidy:
-	clang-tidy -p=. $(OBJS_MAIN:.o=.c) -- $(CFLAGS)
+	clang-tidy -p=. $(LINT_OBJS:.o=.c) -- $(CFLAGS)
 
 clean:
 	$(RM) $(OBJS) $(BIN) $(SMARTDNS_LIB) $(MAIN_OBJ) $(SMARTDNS_TEST_LIB) $(TEST_OBJS)
+
+# lint specific files
+# make lint-files FILES="dns.c proxy.c"
+lint-files:
+	@echo "Specify FILES variable to lint specific files, e.g., make lint-files FILES='src/dns.c src/proxy.c'"
+	clang-tidy -p=. $(FILES) -- $(CFLAGS)
+

@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2024 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -319,4 +319,25 @@ server 127.0.0.1:63053 -group g2 -exclude-default-group
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
 	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "5.6.7.8");
+}
+
+TEST(Bind, Get)
+{
+    smartdns::Server server;
+
+	int ret = system("which curl > /dev/null 2>&1");
+	if (ret != 0) {
+		GTEST_SKIP() << "curl not found, skip test";
+	}
+
+    // Start server with bind-https and logging to file
+    server.Start(R"""(bind-https [::]:60053 -alpn h2
+address /example.com/1.2.3.4
+log-level debug
+)""");
+
+    // Send GET request using curl
+    std::string cmd = "curl -k --http2 'https://127.0.0.1:60053/dns-query?dns=AAABAAABAAAAAAAAB2V4YW1wbGUDY29tAAABAAE=' > /dev/null 2>&1";
+    ret = system(cmd.c_str());
+    ASSERT_EQ(ret, 0);
 }

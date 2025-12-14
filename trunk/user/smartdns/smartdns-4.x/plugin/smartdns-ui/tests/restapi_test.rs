@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2024 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -20,33 +20,20 @@ mod common;
 
 use common::TestDnsRequest;
 use nix::libc::c_char;
-use reqwest;
-use serde_json::json;
 use smartdns_ui::{http_api_msg, http_jwt::JwtClaims, smartdns::LogLevel};
 use std::ffi::CString;
 
-#[tokio::test(flavor = "multi_thread")]
-async fn test_rest_api_login() {
+#[test]
+fn test_rest_api_login() {
     let mut server = common::TestServer::new();
     server.set_log_level(LogLevel::DEBUG);
     assert!(server.start().is_ok());
 
-    let c = reqwest::Client::new();
-    let body = json!({
-        "username": "admin",
-        "password": "password",
-    });
-
-    let res = c
-        .post(server.get_url("/api/auth/login"))
-        .body(body.to_string())
-        .send()
-        .await
-        .unwrap();
-    let code = res.status();
-    let body = res.text().await.unwrap();
+    let mut client = common::TestClient::new(&server.get_host());
+    let res = client.login("admin", "password");
+    assert!(res.is_ok());
+    let body = res.unwrap();
     println!("res: {}", body);
-    assert_eq!(code, 200);
 
     let result = http_api_msg::api_msg_parse_auth_token(&body);
     assert!(result.is_ok());
@@ -92,28 +79,17 @@ fn test_rest_api_logout() {
     assert_eq!(code, 401);
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn test_rest_api_login_incorrect() {
+#[test]
+fn test_rest_api_login_incorrect() {
     let mut server = common::TestServer::new();
     server.set_log_level(LogLevel::DEBUG);
     assert!(server.start().is_ok());
 
-    let c = reqwest::Client::new();
-    let body = json!({
-        "username": "admin",
-        "password": "wrongpassword",
-    });
-
-    let res = c
-        .post(server.get_url("/api/auth/login"))
-        .body(body.to_string())
-        .send()
-        .await
-        .unwrap();
-    let code = res.status();
-    let body = res.text().await.unwrap();
+    let mut client = common::TestClient::new(&server.get_host());
+    let res = client.login("admin", "wrongpassword");
+    assert!(!res.is_ok());
+    let body = res.err().unwrap().to_string();
     println!("res: {}", body);
-    assert_eq!(code, 401);
 
     let result = http_api_msg::api_msg_parse_error(&body);
     assert!(result.is_ok());
@@ -324,6 +300,24 @@ fn test_rest_api_get_domain() {
 }
 
 #[test]
+fn test_rest_api_audit_log_stream() {
+    let mut server = common::TestServer::new();
+    server.set_log_level(LogLevel::DEBUG);
+    assert!(server.start().is_ok());
+
+    let mut client = common::TestClient::new(&server.get_host());
+    let res = client.login("admin", "password");
+    assert!(res.is_ok());
+    let socket = client.websocket("/api/log/audit/stream");
+    assert!(socket.is_ok());
+    let mut socket = socket.unwrap();
+
+    _ = socket.send(tungstenite::Message::Text("aaaa".to_string()));
+    _ = socket.close(None);
+}
+
+
+#[test]
 fn test_rest_api_get_by_id() {
     let mut server = common::TestServer::new();
     server.set_log_level(LogLevel::DEBUG);
@@ -493,7 +487,7 @@ fn test_rest_api_get_client() {
     let res = client.login("admin", "password");
     assert!(res.is_ok());
 
-    let c = client.get("/api/client");
+    let c = client.get("/api/client?page_size=4096");
     assert!(c.is_ok());
     let (code, body) = c.unwrap();
     assert_eq!(code, 200);

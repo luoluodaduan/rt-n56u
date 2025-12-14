@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2024 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,12 +16,14 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "dns_cache.h"
-#include "dns_stats.h"
-#include "stringutil.h"
-#include "timer.h"
-#include "tlog.h"
-#include "util.h"
+#define _GNU_SOURCE
+
+#include "smartdns/dns_cache.h"
+#include "smartdns/dns_stats.h"
+#include "smartdns/lib/stringutil.h"
+#include "smartdns/timer.h"
+#include "smartdns/tlog.h"
+#include "smartdns/util.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
@@ -69,7 +71,7 @@ int dns_cache_init(int size, int mem_size, dns_cache_callback timeout_callback)
 		bits = 12;
 	}
 
-	hash_table_init(dns_cache_head.cache_hash, bits, malloc);
+	hash_table_init(dns_cache_head.cache_hash, bits);
 	atomic_set(&dns_cache_head.num, 0);
 	atomic_set(&dns_cache_head.mem_size, 0);
 	dns_cache_head.size = size;
@@ -97,7 +99,9 @@ static void _dns_cache_delete(struct dns_cache *dns_cache)
 	pthread_mutex_lock(&dns_cache_head.lock);
 	hash_del(&dns_cache->node);
 	list_del_init(&dns_cache->list);
-	dns_timer_del(&dns_cache->timer);
+	if (dns_timer_del(&dns_cache->timer)) {
+		tlog(TLOG_DEBUG, "dns cache timer is still pending when delete dns cache.");
+	}
 	pthread_mutex_unlock(&dns_cache_head.lock);
 	atomic_dec(&dns_cache_head.num);
 	atomic_sub(sizeof(*dns_cache), &dns_cache_head.mem_size);
@@ -112,18 +116,23 @@ static void _dns_cache_delete(struct dns_cache *dns_cache)
 void dns_cache_get(struct dns_cache *dns_cache)
 {
 	if (atomic_inc_return(&dns_cache->ref) == 1) {
-		tlog(TLOG_ERROR, "BUG: dns_cache is invalid.");
+		BUG("BUG: dns_cache is invalid.");
 		return;
 	}
 }
 
 void dns_cache_release(struct dns_cache *dns_cache)
 {
+	int refcnt = 0;
 	if (dns_cache == NULL) {
 		return;
 	}
 
-	if (!atomic_dec_and_test(&dns_cache->ref)) {
+	refcnt = atomic_dec_return(&dns_cache->ref);
+	if (refcnt > 0) {
+		return;
+	} else if (refcnt < 0) {
+		BUG("dns_cache refcnt is invalid: %d", refcnt);
 		return;
 	}
 
@@ -134,7 +143,9 @@ static void _dns_cache_remove(struct dns_cache *dns_cache)
 {
 	hash_del(&dns_cache->node);
 	list_del_init(&dns_cache->list);
-	dns_timer_del(&dns_cache->timer);
+	if (dns_timer_del(&dns_cache->timer)) {
+		dns_cache_release(dns_cache);
+	}
 	dns_cache_release(dns_cache);
 }
 
@@ -157,13 +168,12 @@ struct dns_cache_data *dns_cache_new_data_packet(void *packet, size_t packet_len
 	}
 
 	data_size = sizeof(*cache_packet) + packet_len;
-	cache_packet = malloc(data_size);
+	cache_packet = zalloc(1, data_size);
 	if (cache_packet == NULL) {
 		return NULL;
 	}
 
 	memcpy(cache_packet->data, packet, packet_len);
-	memset(&cache_packet->head, 0, sizeof(cache_packet->head));
 
 	cache_packet->head.size = packet_len;
 	cache_packet->head.magic = MAGIC_CACHE_DATA;
@@ -173,20 +183,10 @@ struct dns_cache_data *dns_cache_new_data_packet(void *packet, size_t packet_len
 	return (struct dns_cache_data *)cache_packet;
 }
 
-static void dns_cache_timer_release(struct tw_base *base, struct tw_timer_list *timer, void *data)
-{
-	struct dns_cache *dns_cache = data;
-	dns_cache_delete(dns_cache);
-}
-
 static void dns_cache_expired(struct tw_base *base, struct tw_timer_list *timer, void *data, unsigned long timestamp)
 {
 	struct dns_cache *dns_cache = data;
-
-	if (dns_cache->del_pending == 1) {
-		dns_cache_delete(dns_cache);
-		return;
-	}
+	int mod_ret = 0;
 
 	if (dns_cache_head.timeout_callback) {
 		dns_cache_tmout_action_t tmout_act = dns_cache_head.timeout_callback(dns_cache);
@@ -194,21 +194,25 @@ static void dns_cache_expired(struct tw_base *base, struct tw_timer_list *timer,
 		case DNS_CACHE_TMOUT_ACTION_OK:
 			break;
 		case DNS_CACHE_TMOUT_ACTION_UPDATE:
-			dns_timer_mod(&dns_cache->timer, dns_cache->info.timeout);
-			return;
+			mod_ret = dns_timer_mod(&dns_cache->timer, dns_cache->info.timeout);
+			goto out;
 		case DNS_CACHE_TMOUT_ACTION_DEL:
 			dns_cache_delete(dns_cache);
-			return;
+			goto out;
 		case DNS_CACHE_TMOUT_ACTION_RETRY:
-			dns_timer_mod(&dns_cache->timer, DNS_CACHE_FAIL_TIMEOUT);
-			return;
+			mod_ret = dns_timer_mod(&dns_cache->timer, DNS_CACHE_FAIL_TIMEOUT);
+			goto out;
 		default:
 			break;
 		}
 	}
 
-	dns_cache->del_pending = 1;
-	dns_timer_mod(&dns_cache->timer, 5);
+	dns_cache_release(dns_cache);
+	return;
+out:
+	if (mod_ret == 0) {
+		dns_cache_release(dns_cache);
+	}
 }
 
 static struct dns_cache *_dns_cache_lookup(struct dns_cache_key *cache_key)
@@ -218,7 +222,7 @@ static struct dns_cache *_dns_cache_lookup(struct dns_cache_key *cache_key)
 	struct dns_cache *dns_cache_ret = NULL;
 	time_t now = 0;
 
-	key = hash_string(cache_key->domain);
+	key = hash_string_case(cache_key->domain);
 	key = jhash(&cache_key->qtype, sizeof(cache_key->qtype), key);
 	key = hash_string_initval(cache_key->dns_group_name, key);
 	key = jhash(&cache_key->query_flag, sizeof(cache_key->query_flag), key);
@@ -232,7 +236,7 @@ static struct dns_cache *_dns_cache_lookup(struct dns_cache_key *cache_key)
 			continue;
 		}
 
-		if (strncmp(cache_key->domain, dns_cache->info.domain, DNS_MAX_CNAME_LEN) != 0) {
+		if (strncasecmp(cache_key->domain, dns_cache->info.domain, DNS_MAX_CNAME_LEN) != 0) {
 			continue;
 		}
 
@@ -297,7 +301,6 @@ static int _dns_cache_replace(struct dns_cache_key *cache_key, int rcode, int tt
 
 	/* update cache data */
 	pthread_mutex_lock(&dns_cache_head.lock);
-	dns_cache->del_pending = 0;
 	dns_cache->info.rcode = rcode;
 	dns_cache->info.qtype = cache_key->qtype;
 	dns_cache->info.query_flag = cache_key->query_flag;
@@ -316,7 +319,11 @@ static int _dns_cache_replace(struct dns_cache_key *cache_key, int rcode, int tt
 	time(&dns_cache->info.replace_time);
 	list_del(&dns_cache->list);
 	list_add_tail(&dns_cache->list, &dns_cache_head.cache_list);
-	dns_timer_mod(&dns_cache->timer, timeout);
+	if (dns_timer_mod(&dns_cache->timer, timeout) == 0) {
+		dns_cache_get(dns_cache);
+		dns_cache->timer.expires = timeout;
+		dns_timer_add(&dns_cache->timer);
+	}
 	pthread_mutex_unlock(&dns_cache_head.lock);
 
 	if (old_cache_data) {
@@ -337,7 +344,7 @@ static void _dns_cache_remove_by_domain(struct dns_cache_key *cache_key)
 	uint32_t key = 0;
 	struct dns_cache *dns_cache = NULL;
 
-	key = hash_string(cache_key->domain);
+	key = hash_string_case(cache_key->domain);
 	key = jhash(&cache_key->qtype, sizeof(cache_key->qtype), key);
 	key = hash_string_initval(cache_key->dns_group_name, key);
 	key = jhash(&cache_key->query_flag, sizeof(cache_key->query_flag), key);
@@ -353,7 +360,7 @@ static void _dns_cache_remove_by_domain(struct dns_cache_key *cache_key)
 			continue;
 		}
 
-		if (strncmp(cache_key->domain, dns_cache->info.domain, DNS_MAX_CNAME_LEN) != 0) {
+		if (strncasecmp(cache_key->domain, dns_cache->info.domain, DNS_MAX_CNAME_LEN) != 0) {
 			continue;
 		}
 
@@ -387,30 +394,23 @@ static int _dns_cache_insert(struct dns_cache_info *info, struct dns_cache_data 
 	cache_key.dns_group_name = info->dns_group_name;
 	_dns_cache_remove_by_domain(&cache_key);
 
-	dns_cache = malloc(sizeof(*dns_cache));
+	dns_cache = zalloc(1, sizeof(*dns_cache));
 	if (dns_cache == NULL) {
 		goto errout;
 	}
-
-	memset(dns_cache, 0, sizeof(*dns_cache));
-	key = hash_string(info->domain);
+	key = hash_string_case(info->domain);
 	key = jhash(&info->qtype, sizeof(info->qtype), key);
 	key = hash_string_initval(info->dns_group_name, key);
 	key = jhash(&info->query_flag, sizeof(info->query_flag), key);
 	atomic_set(&dns_cache->ref, 1);
 	memcpy(&dns_cache->info, info, sizeof(*info));
-	dns_cache->del_pending = 0;
 	dns_cache->cache_data = cache_data;
 	dns_cache->timer.function = dns_cache_expired;
-	dns_cache->timer.del_function = dns_cache_timer_release;
 	dns_cache->timer.expires = timeout;
 	dns_cache->timer.data = dns_cache;
 	INIT_LIST_HEAD(&dns_cache->check_list);
 
 	pthread_mutex_lock(&dns_cache_head.lock);
-	hash_table_add(dns_cache_head.cache_hash, &dns_cache->node, key);
-	list_add_tail(&dns_cache->list, head);
-	atomic_add(sizeof(*dns_cache), &dns_cache_head.mem_size);
 	atomic_inc(&dns_cache_head.num);
 
 	/* Release extra cache, remove oldest cache record */
@@ -436,6 +436,10 @@ static int _dns_cache_insert(struct dns_cache_info *info, struct dns_cache_data 
 
 		_dns_cache_remove(del_cache);
 	} while (loop_count++ < 32);
+
+	hash_table_add(dns_cache_head.cache_hash, &dns_cache->node, key);
+	list_add_tail(&dns_cache->list, head);
+	atomic_add(sizeof(*dns_cache), &dns_cache_head.mem_size);
 
 	dns_cache_get(dns_cache);
 	dns_timer_add(&dns_cache->timer);
@@ -494,8 +498,11 @@ int dns_cache_update_timer(struct dns_cache_key *key, int timeout)
 	}
 
 	pthread_mutex_lock(&dns_cache_head.lock);
-	dns_timer_mod(&dns_cache->timer, timeout);
-	dns_cache->del_pending = 0;
+	if (dns_timer_mod(&dns_cache->timer, timeout) == 0) {
+		dns_cache_get(dns_cache);
+		dns_cache->timer.expires = timeout;
+		dns_timer_add(&dns_cache->timer);
+	}
 	pthread_mutex_unlock(&dns_cache_head.lock);
 
 	dns_cache_release(dns_cache);
@@ -634,18 +641,26 @@ static int _dns_cache_read_to_cache(struct dns_cache_record *cache_record, struc
 		info->replace_time = now;
 	}
 
+	int passed_time = now - info->replace_time;
+	int timeout = info->timeout - passed_time;
+
 	struct dns_conf_group *rule_group = dns_server_get_rule_group(info->dns_group_name);
-	expired_time = rule_group->dns_serve_expired_prefetch_time;
-	if (expired_time == 0) {
-		expired_time = rule_group->dns_serve_expired_ttl / 2;
-		if (expired_time == 0 || expired_time > EXPIRED_DOMAIN_PREFETCH_TIME) {
-			expired_time = EXPIRED_DOMAIN_PREFETCH_TIME;
+
+	if (rule_group->dns_prefetch) {
+		if (rule_group->dns_serve_expired) {
+			expired_time = rule_group->dns_serve_expired_prefetch_time;
+			if (expired_time == 0) {
+				expired_time = rule_group->dns_serve_expired_ttl / 2;
+				if (expired_time == 0 || expired_time > EXPIRED_DOMAIN_PREFETCH_TIME) {
+					expired_time = EXPIRED_DOMAIN_PREFETCH_TIME;
+				}
+			}
+		} else {
+			timeout -= 3;
 		}
 	}
 
-	int passed_time = now - info->replace_time;
-	int timeout = info->timeout - passed_time;
-	if ((timeout > expired_time + info->ttl) && expired_time >= 0) {
+	if ((timeout > expired_time + info->ttl) && expired_time > 0) {
 		timeout = expired_time + info->ttl;
 	}
 
@@ -672,6 +687,7 @@ static int _dns_cache_read_record(int fd, uint32_t cache_number, dns_cache_read_
 {
 	unsigned int i = 0;
 	ssize_t ret = 0;
+	int data_size = 0;
 	struct dns_cache_record cache_record;
 	struct dns_cache_data_head data_head;
 	struct dns_cache_data *cache_data = NULL;
@@ -704,7 +720,8 @@ static int _dns_cache_read_record(int fd, uint32_t cache_number, dns_cache_read_
 			goto errout;
 		}
 
-		cache_data = malloc(data_head.size + sizeof(data_head));
+		data_size = data_head.size + sizeof(data_head);
+		cache_data = zalloc(1, data_size);
 		if (cache_data == NULL) {
 			tlog(TLOG_ERROR, "malloc cache data failed %s", strerror(errno));
 			goto errout;
@@ -722,6 +739,7 @@ static int _dns_cache_read_record(int fd, uint32_t cache_number, dns_cache_read_
 		cache_record.info.is_visited = 0;
 		cache_record.info.domain[DNS_MAX_CNAME_LEN - 1] = '\0';
 		cache_record.info.dns_group_name[DNS_GROUP_NAME_LEN - 1] = '\0';
+		atomic_add(data_size, &dns_cache_head.mem_size);
 		ret = callback(&cache_record, cache_data);
 		dns_cache_data_put(cache_data);
 		cache_data = NULL;

@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2024 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,18 +19,19 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
-#include "proxy.h"
-#include "dns_conf.h"
-#include "hashtable.h"
-#include "http_parse.h"
-#include "list.h"
-#include "tlog.h"
-#include "util.h"
+#include "smartdns/proxy.h"
+#include "smartdns/dns_conf.h"
+#include "smartdns/http_parse.h"
+#include "smartdns/lib/hashtable.h"
+#include "smartdns/lib/list.h"
+#include "smartdns/tlog.h"
+#include "smartdns/util.h"
 #include <arpa/inet.h>
 #include <errno.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <sys/epoll.h>
+#include <time.h>
 
 #define PROXY_SOCKS5_VERSION 0x05
 #define PROXY_SOCKS5_NO_AUTH 0x00
@@ -47,6 +48,17 @@
 #define PROXY_MAX_EVENTS 64
 #define PROXY_BUFFER_SIZE (1024 * 4)
 #define PROXY_MAX_HOSTNAME_LEN 256
+
+#define PROXY_ERROR_LOG_THROTTLE_SEC 60
+
+#define PROXY_THROTTLED_ERROR_LOG(last_time, ...)                                                                      \
+	do {                                                                                                               \
+		time_t now = time(NULL);                                                                                       \
+		if (now - (last_time) >= PROXY_ERROR_LOG_THROTTLE_SEC) {                                                       \
+			tlog(TLOG_ERROR, __VA_ARGS__);                                                                             \
+			(last_time) = now;                                                                                         \
+		}                                                                                                              \
+	} while (0)
 
 typedef enum PROXY_CONN_STATE {
 	PROXY_CONN_INIT = 0,
@@ -175,12 +187,11 @@ int proxy_add(const char *proxy_name, struct proxy_info *info)
 		return -1;
 	}
 
-	server_info = malloc(sizeof(*server_info));
+	server_info = zalloc(1, sizeof(*server_info));
 	if (server_info == NULL) {
 		goto errout;
 	}
 
-	memset(server_info, 0, sizeof(*server_info));
 	memcpy(&server_info->info, info, sizeof(struct proxy_info));
 
 	if (parse_ip(info->server, ip_str, &port) != 0) {
@@ -255,6 +266,7 @@ struct proxy_conn *proxy_conn_new(const char *proxy_name, const char *host, int 
 
 	server_info = _proxy_get_server_info(proxy_name);
 	if (server_info == NULL) {
+		tlog(TLOG_WARN, "proxy server %s not found", proxy_name);
 		goto errout;
 	}
 
@@ -268,12 +280,11 @@ struct proxy_conn *proxy_conn_new(const char *proxy_name, const char *host, int 
 		goto errout;
 	}
 
-	proxy_conn = malloc(sizeof(*proxy_conn));
+	proxy_conn = zalloc(1, sizeof(*proxy_conn));
 	if (proxy_conn == NULL) {
 		goto errout;
 	}
 
-	memset(proxy_conn, 0, sizeof(*proxy_conn));
 	safe_strncpy(proxy_conn->host, host, DNS_MAX_CNAME_LEN);
 	proxy_conn->port = port;
 	proxy_conn->type = server_info->info.type;
@@ -500,6 +511,8 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_conn *proxy_co
 {
 	int len = 0;
 	char buff[DNS_MAX_CNAME_LEN * 2];
+	static time_t last_error_log_time = 0;
+
 	memset(buff, 0, sizeof(buff));
 
 	switch (proxy_conn->state) {
@@ -510,8 +523,9 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_conn *proxy_co
 		buff[3] = PROXY_SOCKS5_AUTH_USER_PASS;
 		len = send(proxy_conn->fd, buff, 4, MSG_NOSIGNAL);
 		if (len != 4) {
-			tlog(TLOG_ERROR, "connect socks5 server %s failed, %s", proxy_conn->server_info->proxy_name,
-				 strerror(errno));
+
+			PROXY_THROTTLED_ERROR_LOG(last_error_log_time, "connect socks5 server %s failed, %s",
+									  proxy_conn->server_info->proxy_name, strerror(errno));
 			return PROXY_HANDSHAKE_ERR;
 		}
 
@@ -526,8 +540,8 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_conn *proxy_co
 				return PROXY_HANDSHAKE_WANT_READ;
 			}
 
-			tlog(TLOG_ERROR, "recv socks5 init ack from %s failed, %s", proxy_conn->server_info->proxy_name,
-				 strerror(errno));
+			PROXY_THROTTLED_ERROR_LOG(last_error_log_time, "recv socks5 init ack from %s failed, %s",
+									  proxy_conn->server_info->proxy_name, strerror(errno));
 			return PROXY_HANDSHAKE_ERR;
 		}
 
@@ -537,19 +551,22 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_conn *proxy_co
 		}
 
 		if (proxy_conn->buffer.len > 2) {
-			tlog(TLOG_ERROR, "recv socks5 init ack from %s failed", proxy_conn->server_info->proxy_name);
+			PROXY_THROTTLED_ERROR_LOG(last_error_log_time, "recv socks5 init ack from %s failed",
+									  proxy_conn->server_info->proxy_name);
 			return PROXY_HANDSHAKE_ERR;
 		}
 
 		proxy_conn->buffer.len = 0;
 
 		if (proxy_conn->buffer.buffer[0] != PROXY_SOCKS5_VERSION) {
-			tlog(TLOG_ERROR, "server %s not support socks5", proxy_conn->server_info->proxy_name);
+			PROXY_THROTTLED_ERROR_LOG(last_error_log_time, "server %s not support socks5",
+									  proxy_conn->server_info->proxy_name);
 			return PROXY_HANDSHAKE_ERR;
 		}
 
 		if ((unsigned char)proxy_conn->buffer.buffer[1] == PROXY_SOCKS5_AUTH_NONE) {
-			tlog(TLOG_ERROR, "server %s not support auth methods", proxy_conn->server_info->proxy_name);
+			PROXY_THROTTLED_ERROR_LOG(last_error_log_time, "server %s not support auth methods",
+									  proxy_conn->server_info->proxy_name);
 			return PROXY_HANDSHAKE_ERR;
 		}
 
@@ -563,8 +580,8 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_conn *proxy_co
 			return _proxy_handshake_socks5_reply_connect_addr(proxy_conn);
 		}
 
-		tlog(TLOG_ERROR, "server %s select invalid auth method %d", proxy_conn->server_info->proxy_name,
-			 proxy_conn->buffer.buffer[1]);
+		PROXY_THROTTLED_ERROR_LOG(last_error_log_time, "server %s select invalid auth method %d",
+								  proxy_conn->server_info->proxy_name, proxy_conn->buffer.buffer[1]);
 		return PROXY_HANDSHAKE_ERR;
 		break;
 	case PROXY_CONN_AUTH_ACK:
@@ -575,8 +592,8 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_conn *proxy_co
 				return PROXY_HANDSHAKE_WANT_READ;
 			}
 
-			tlog(TLOG_ERROR, "recv socks5 auth ack from %s failed, %s", proxy_conn->server_info->proxy_name,
-				 strerror(errno));
+			PROXY_THROTTLED_ERROR_LOG(last_error_log_time, "recv socks5 auth ack from %s failed, %s",
+									  proxy_conn->server_info->proxy_name, strerror(errno));
 			return PROXY_HANDSHAKE_ERR;
 		}
 
@@ -586,20 +603,23 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_conn *proxy_co
 		}
 
 		if (proxy_conn->buffer.len != 2) {
-			tlog(TLOG_ERROR, "recv socks5 auth ack from %s failed", proxy_conn->server_info->proxy_name);
+			PROXY_THROTTLED_ERROR_LOG(last_error_log_time, "recv socks5 auth ack from %s failed",
+									  proxy_conn->server_info->proxy_name);
 			return PROXY_HANDSHAKE_ERR;
 		}
 
 		proxy_conn->buffer.len = 0;
 
 		if (proxy_conn->buffer.buffer[0] != 0x1) {
-			tlog(TLOG_ERROR, "server %s not support socks5", proxy_conn->server_info->proxy_name);
+			PROXY_THROTTLED_ERROR_LOG(last_error_log_time, "server %s not support socks5",
+									  proxy_conn->server_info->proxy_name);
 			return PROXY_HANDSHAKE_ERR;
 		}
 
 		if (proxy_conn->buffer.buffer[1] != 0x0) {
-			tlog(TLOG_ERROR, "server %s auth failed, incorrect user or password, code: %d",
-				 proxy_conn->server_info->proxy_name, proxy_conn->buffer.buffer[1]);
+			PROXY_THROTTLED_ERROR_LOG(last_error_log_time,
+									  "server %s auth failed, incorrect user or password, code: %d",
+									  proxy_conn->server_info->proxy_name, proxy_conn->buffer.buffer[1]);
 			return PROXY_HANDSHAKE_ERR;
 		}
 
@@ -621,10 +641,11 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_conn *proxy_co
 			}
 
 			if (len == 0) {
-				tlog(TLOG_ERROR, "server %s closed connection", proxy_conn->server_info->proxy_name);
+				PROXY_THROTTLED_ERROR_LOG(last_error_log_time, "server %s closed connection",
+										  proxy_conn->server_info->proxy_name);
 			} else {
-				tlog(TLOG_ERROR, "recv socks5 connect ack from %s failed, %s", proxy_conn->server_info->proxy_name,
-					 strerror(errno));
+				PROXY_THROTTLED_ERROR_LOG(last_error_log_time, "recv socks5 connect ack from %s failed, %s",
+										  proxy_conn->server_info->proxy_name, strerror(errno));
 			}
 
 			return PROXY_HANDSHAKE_ERR;
@@ -637,18 +658,19 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_conn *proxy_co
 		recv_buff = proxy_conn->buffer.buffer;
 
 		if (recv_buff[0] != PROXY_SOCKS5_VERSION) {
-			tlog(TLOG_ERROR, "server %s not support socks5", proxy_conn->server_info->proxy_name);
+			PROXY_THROTTLED_ERROR_LOG(last_error_log_time, "server %s not support socks5",
+									  proxy_conn->server_info->proxy_name);
 			return PROXY_HANDSHAKE_ERR;
 		}
 
 		if (recv_buff[1] != 0) {
-			if ((unsigned char)recv_buff[1] <=
-				(sizeof(proxy_socks5_status_code) / sizeof(proxy_socks5_status_code[0]))) {
-				tlog(TLOG_ERROR, "server %s reply failed, error-code: %s", proxy_conn->server_info->proxy_name,
-					 proxy_socks5_status_code[(int)recv_buff[1]]);
+			if (recv_buff[1] <= (sizeof(proxy_socks5_status_code) / sizeof(proxy_socks5_status_code[0]))) {
+				PROXY_THROTTLED_ERROR_LOG(last_error_log_time, "server %s reply failed, error-code: %s",
+										  proxy_conn->server_info->proxy_name,
+										  proxy_socks5_status_code[(int)recv_buff[1]]);
 			} else {
-				tlog(TLOG_ERROR, "server %s reply failed, error-code: %x", proxy_conn->server_info->proxy_name,
-					 recv_buff[1]);
+				PROXY_THROTTLED_ERROR_LOG(last_error_log_time, "server %s reply failed, error-code: %x",
+										  proxy_conn->server_info->proxy_name, recv_buff[1]);
 			}
 			return PROXY_HANDSHAKE_ERR;
 		}
@@ -736,7 +758,7 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_conn *proxy_co
 		return PROXY_HANDSHAKE_CONNECTED;
 	} break;
 	default:
-		tlog(TLOG_ERROR, "client socks5 status %d is invalid", proxy_conn->state);
+		PROXY_THROTTLED_ERROR_LOG(last_error_log_time, "client socks5 status %d is invalid", proxy_conn->state);
 		return PROXY_HANDSHAKE_ERR;
 	}
 

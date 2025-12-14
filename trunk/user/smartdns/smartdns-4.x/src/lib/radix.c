@@ -55,12 +55,14 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#define _GNU_SOURCE
+
 #include <sys/types.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
-#include "radix.h"
+#include "smartdns/lib/radix.h"
 
 /* $Id: radix.c,v 1.17 2007/10/24 06:04:31 djm Exp $ */
 
@@ -104,17 +106,15 @@ static prefix_t
 	if (family == AF_INET6) {
 		default_bitlen = 128;
 		if (prefix == NULL) {
-			if ((prefix = malloc(sizeof(*prefix))) == NULL)
+			if ((prefix = calloc(1, sizeof(*prefix))) == NULL)
 				return (NULL);
-			memset(prefix, '\0', sizeof(*prefix));
 			dynamic_allocated++;
 		}
 		memcpy(&prefix->add.sin6, dest, 16);
 	} else if (family == AF_INET) {
 		if (prefix == NULL) {
-			if ((prefix = malloc(sizeof(*prefix))) == NULL)
+			if ((prefix = calloc(1, sizeof(*prefix))) == NULL)
 				return (NULL);
-			memset(prefix, '\0', sizeof(*prefix));
 			dynamic_allocated++;
 		}
 		memcpy(&prefix->add.sin, dest, 4);
@@ -169,9 +169,8 @@ radix_tree_t
 {
 	radix_tree_t *radix;
 
-	if ((radix = malloc(sizeof(*radix))) == NULL)
+	if ((radix = calloc(1, sizeof(*radix))) == NULL)
 		return (NULL);
-	memset(radix, '\0', sizeof(*radix));
 
 	radix->maxbits = 128;
 	radix->head = NULL;
@@ -338,9 +337,8 @@ radix_node_t
 	unsigned int i, j, r;
 
 	if (radix->head == NULL) {
-		if ((node = malloc(sizeof(*node))) == NULL)
+		if ((node = calloc(1, sizeof(*node))) == NULL)
 			return (NULL);
-		memset(node, '\0', sizeof(*node));
 		node->bit = prefix->bitlen;
 		node->prefix = Ref_Prefix(prefix);
 		node->parent = NULL;
@@ -399,9 +397,8 @@ radix_node_t
 			node->prefix = Ref_Prefix(prefix);
 		return (node);
 	}
-	if ((new_node = malloc(sizeof(*new_node))) == NULL)
+	if ((new_node = calloc(1, sizeof(*new_node))) == NULL)
 		return (NULL);
-	memset(new_node, '\0', sizeof(*new_node));
 	new_node->bit = prefix->bitlen;
 	new_node->prefix = Ref_Prefix(prefix);
 	new_node->parent = NULL;
@@ -436,11 +433,10 @@ radix_node_t
 
 		node->parent = new_node;
 	} else {
-		if ((glue = malloc(sizeof(*glue))) == NULL) {
+		if ((glue = calloc(1, sizeof(*glue))) == NULL) {
 			free(new_node);
 			return (NULL);
 		}
-		memset(glue, '\0', sizeof(*glue));
 		glue->bit = differ_bit;
 		glue->prefix = NULL;
 		glue->parent = node->parent;
@@ -558,12 +554,25 @@ sanitise_mask(unsigned char *addr, unsigned int masklen, unsigned int maskbits)
 		addr[i] = 0;
 }
 
+static void
+update_addr(const char **addr_ptr, const char *addr, size_t len)
+{
+	const char *ipv6_prefix = "::ffff:0:0";
+
+	if (strncmp(addr, "::ffff", len) == 0) 
+		*addr_ptr = ipv6_prefix;
+	else
+		*addr_ptr = (char *)addr;
+}
+
 prefix_t
 *prefix_pton(const char *string, long len, prefix_t *prefix, const char **errmsg)
 {
-	char save[256], *cp, *ep;
+	static char save[256];
+	char *cp, *ep;
 	struct addrinfo hints, *ai;
 	void *addr;
+	const char *addr_str = NULL;
 	prefix_t *ret;
 	size_t slen;
 	int r;
@@ -593,7 +602,9 @@ prefix_t
 	memset(&hints, '\0', sizeof(hints));
 	hints.ai_flags = AI_NUMERICHOST;
 
-	if ((r = getaddrinfo(save, NULL, &hints, &ai)) != 0) {
+	update_addr(&addr_str, save, slen);
+
+	if ((r = getaddrinfo(addr_str, NULL, &hints, &ai)) != 0) {
 		snprintf(save, sizeof(save), "getaddrinfo: %s:",
 		    gai_strerror(r));
 		*errmsg = save;

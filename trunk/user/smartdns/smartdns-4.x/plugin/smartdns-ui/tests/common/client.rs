@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2024 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -57,6 +57,11 @@ impl TestClient {
             password: password.to_string(),
         });
         let resp = self.client.post(&url).body(body).send()?;
+
+        if resp.status().as_u16() != 200 {
+            return Err(resp.text()?.into());
+        }
+
         let text = resp.text()?;
 
         let token = http_api_msg::api_msg_parse_auth_token(&text)?;

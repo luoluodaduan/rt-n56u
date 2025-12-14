@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2024 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,11 +17,11 @@
  */
 
 #include "server.h"
-#include "dns_server.h"
-#include "fast_ping.h"
+#include "smartdns/dns_server.h"
+#include "smartdns/fast_ping.h"
 #include "include/utils.h"
-#include "smartdns.h"
-#include "util.h"
+#include "smartdns/smartdns.h"
+#include "smartdns/util.h"
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <fstream>
@@ -199,11 +199,6 @@ bool MockServer::AddIP(struct ServerRequestContext *request, const std::string &
 					  (unsigned char *)&addr4->sin_addr.s_addr);
 		} else if (addr.ss_family == AF_INET6) {
 			struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)&addr;
-			if (IN6_IS_ADDR_V4MAPPED(&addr6->sin6_addr)) {
-				dns_add_A(request->response_packet, DNS_RRS_AN, domain.c_str(), ttl,
-						  (unsigned char *)&addr6->sin6_addr.s6_addr[12]);
-				return true;
-			}
 			dns_add_AAAA(request->response_packet, DNS_RRS_AN, domain.c_str(), ttl,
 						 (unsigned char *)&addr6->sin6_addr.s6_addr);
 		}
@@ -452,6 +447,8 @@ void Server::Stop(bool graceful)
 	if (pid_ > 0) {
 		waitpid(pid_, nullptr, 0);
 	}
+
+	conf_temp_file_.Close();
 
 	pid_ = 0;
 }

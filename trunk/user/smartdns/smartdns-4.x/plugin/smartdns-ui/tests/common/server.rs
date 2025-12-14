@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2024 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -300,7 +300,7 @@ impl TestServer {
         self.args.insert(1, self.ip.clone());
 
         self.args.insert(0, "--data-dir".to_string());
-        self.args.insert(1, self.workdir.clone() + "/data.db");
+        self.args.insert(1, self.workdir.clone());
 
         self.args.insert(0, "--www-root".to_string());
         self.www_root = self.workdir.clone() + "/www";

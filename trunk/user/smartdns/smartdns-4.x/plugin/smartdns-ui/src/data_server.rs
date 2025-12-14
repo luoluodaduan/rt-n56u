@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2024 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,6 +21,8 @@ use crate::data_upstream_server::UpstreamServerInfo;
 use crate::db::*;
 use crate::dns_log;
 use crate::plugin::SmartdnsPlugin;
+use crate::server_log::ServerAuditLog;
+use crate::server_log::ServerAuditLogMsg;
 use crate::server_log::ServerLog;
 use crate::server_log::ServerLogMsg;
 use crate::smartdns;
@@ -32,6 +34,7 @@ use crate::whois::WhoIsInfo;
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::atomic::AtomicBool;
+use std::sync::Weak;
 use std::sync::{Arc, Mutex, RwLock};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -40,9 +43,10 @@ use tokio::time::Instant;
 
 pub const DEFAULT_MAX_LOG_AGE: u64 = 30 * 24 * 60 * 60;
 pub const DEFAULT_MAX_LOG_AGE_MS: u64 = DEFAULT_MAX_LOG_AGE * 1000;
-pub const MAX_LOG_AGE_VALUE_MIN: u64 = 3600;
+pub const MAX_LOG_AGE_VALUE_MIN: u64 = 600;
 pub const MAX_LOG_AGE_VALUE_MAX: u64 = 365 * 24 * 60 * 60 * 10;
 pub const MIN_FREE_DISK_SPACE: u64 = 1024 * 1024 * 8;
+pub const DB_FILE_NAME: &str = "smartdns.db";
 
 #[derive(Clone)]
 pub struct OverviewData {
@@ -57,6 +61,8 @@ pub struct OverviewData {
 pub struct MetricsData {
     pub total_query_count: u64,
     pub block_query_count: u64,
+    pub request_drop_count: u64,
+    pub fail_query_count: u64,
     pub avg_query_time: f64,
     pub cache_hit_rate: f64,
     pub cache_number: u64,
@@ -68,14 +74,16 @@ pub struct MetricsData {
 
 #[derive(Clone)]
 pub struct DataServerConfig {
-    pub data_root: String,
+    pub db_file: String,
+    pub data_path: String,
     pub max_log_age_ms: u64,
 }
 
 impl DataServerConfig {
     pub fn new() -> Self {
         DataServerConfig {
-            data_root: Plugin::dns_conf_data_dir() + "/smartdns.db",
+            data_path: Plugin::dns_conf_data_dir(),
+            db_file: Plugin::dns_conf_data_dir() + "/" + DB_FILE_NAME,
             max_log_age_ms: DEFAULT_MAX_LOG_AGE_MS,
         }
     }
@@ -110,7 +118,7 @@ pub struct DataServerControl {
     server_thread: Mutex<Option<JoinHandle<()>>>,
     is_init: Mutex<bool>,
     is_run: Mutex<bool>,
-    plugin: Mutex<Option<Arc<SmartdnsPlugin>>>,
+    plugin: Mutex<Weak<SmartdnsPlugin>>,
 }
 
 impl DataServerControl {
@@ -120,7 +128,7 @@ impl DataServerControl {
             server_thread: Mutex::new(None),
             is_init: Mutex::new(false),
             is_run: Mutex::new(false),
-            plugin: Mutex::new(None),
+            plugin: Mutex::new(Weak::new()),
         }
     }
 
@@ -129,12 +137,19 @@ impl DataServerControl {
     }
 
     pub fn set_plugin(&self, plugin: Arc<SmartdnsPlugin>) {
-        *self.plugin.lock().unwrap() = Some(plugin);
+        *self.plugin.lock().unwrap() = Arc::downgrade(&plugin);
     }
 
-    pub fn get_plugin(&self) -> Arc<SmartdnsPlugin> {
-        let plugin = self.plugin.lock().unwrap();
-        Arc::clone(&plugin.as_ref().unwrap())
+    pub fn get_plugin(&self) -> Result<Arc<SmartdnsPlugin>, Box<dyn Error>> {
+        let plugin = match self.plugin.lock() {
+            Ok(plugin) => plugin,
+            Err(_) => return Err("Failed to lock plugin mutex".into()),
+        };
+
+        if let Some(plugin) = plugin.upgrade() {
+            return Ok(plugin);
+        }
+        Err("Plugin is not set".into())
     }
 
     pub fn init_db(&self, conf: &DataServerConfig) -> Result<(), Box<dyn Error>> {
@@ -155,8 +170,9 @@ impl DataServerControl {
             return Err("data server not init".into());
         }
 
-        self.data_server.set_plugin(self.get_plugin());
-        let rt = self.get_plugin().get_runtime();
+        let plugin = self.get_plugin()?;
+        self.data_server.set_plugin(plugin.clone());
+        let rt = plugin.get_runtime();
 
         let server_thread = rt.spawn(async move {
             let ret = DataServer::data_server_loop(inner_clone).await;
@@ -165,7 +181,7 @@ impl DataServerControl {
                 Plugin::smartdns_exit(1);
             }
 
-            dns_log!(LogLevel::INFO, "data server exit.");
+            dns_log!(LogLevel::DEBUG, "data server exit.");
         });
 
         *self.is_run.lock().unwrap() = true;
@@ -181,7 +197,18 @@ impl DataServerControl {
         self.data_server.stop_data_server();
         let _server_thread = self.server_thread.lock().unwrap().take();
         if let Some(server_thread) = _server_thread {
-            let rt = self.get_plugin().get_runtime();
+            let plugin = self.get_plugin();
+            if plugin.is_err() {
+                dns_log!(
+                    LogLevel::ERROR,
+                    "get plugin error: {}",
+                    plugin.err().unwrap()
+                );
+                return;
+            }
+
+            let plugin = plugin.unwrap();
+            let rt = plugin.get_runtime();
             tokio::task::block_in_place(|| {
                 if let Err(e) = rt.block_on(server_thread) {
                     dns_log!(LogLevel::ERROR, "http server stop error: {}", e);
@@ -215,6 +242,10 @@ impl DataServerControl {
     pub fn server_log(&self, level: LogLevel, msg: &str, msg_len: i32) {
         self.data_server.server_log(level, msg, msg_len);
     }
+
+    pub fn server_audit_log(&self, msg: &str, msg_len: i32) {
+        self.data_server.server_audit_log(msg, msg_len);
+    }
 }
 
 impl Drop for DataServerControl {
@@ -233,7 +264,8 @@ pub struct DataServer {
     disable_handle_request: AtomicBool,
     stat: Arc<DataStats>,
     server_log: ServerLog,
-    plugin: Mutex<Option<Arc<SmartdnsPlugin>>>,
+    server_audit_log: ServerAuditLog,
+    plugin: Mutex<Weak<SmartdnsPlugin>>,
     whois: whois::WhoIs,
     startup_timestamp: u64,
     recv_in_batch: Mutex<bool>,
@@ -252,7 +284,8 @@ impl DataServer {
             db: db.clone(),
             stat: DataStats::new(db, conf.clone()),
             server_log: ServerLog::new(),
-            plugin: Mutex::new(None),
+            server_audit_log: ServerAuditLog::new(),
+            plugin: Mutex::new(Weak::new()),
             whois: whois::WhoIs::new(),
             startup_timestamp: get_utc_time_ms(),
             disable_handle_request: AtomicBool::new(false),
@@ -263,7 +296,7 @@ impl DataServer {
         plugin.notify_tx = Some(tx);
         plugin.notify_rx = Mutex::new(Some(rx));
 
-        let (tx, rx) = mpsc::channel(1024 * 32);
+        let (tx, rx) = mpsc::channel(1024 * 256);
         plugin.data_tx = Some(tx);
         plugin.data_rx = Mutex::new(Some(rx));
 
@@ -284,8 +317,17 @@ impl DataServer {
 
         smartdns::smartdns_enable_update_neighbour(true);
 
-        dns_log!(LogLevel::INFO, "open db: {}", conf_clone.data_root);
-        let ret = self.db.open(&conf_clone.data_root);
+        if utils::is_dir_writable(&conf_clone.data_path) == false {
+            return Err(format!(
+                "data path '{}' is not exist or writable.",
+                conf_clone.data_path
+            )
+            .into());
+        }
+
+        conf_clone.db_file = conf_clone.data_path.clone() + "/" + DB_FILE_NAME;
+        dns_log!(LogLevel::INFO, "open db: {}", conf_clone.db_file);
+        let ret = self.db.open(&conf_clone.db_file);
         if let Err(e) = ret {
             return Err(e);
         }
@@ -299,12 +341,19 @@ impl DataServer {
     }
 
     pub fn set_plugin(&self, plugin: Arc<SmartdnsPlugin>) {
-        *self.plugin.lock().unwrap() = Some(plugin);
+        *self.plugin.lock().unwrap() = Arc::downgrade(&plugin);
     }
 
-    pub fn get_plugin(&self) -> Arc<SmartdnsPlugin> {
-        let plugin = self.plugin.lock().unwrap();
-        Arc::clone(&plugin.as_ref().unwrap())
+    pub fn get_plugin(&self) -> Result<Arc<SmartdnsPlugin>, Box<dyn Error>> {
+        let plugin = match self.plugin.lock() {
+            Ok(plugin) => plugin,
+            Err(_) => return Err("Failed to lock plugin mutex".into()),
+        };
+
+        if let Some(plugin) = plugin.upgrade() {
+            return Ok(plugin);
+        }
+        Err("Plugin is not set".into())
     }
 
     pub fn get_data_server_config(&self) -> DataServerConfig {
@@ -384,8 +433,11 @@ impl DataServer {
         self.db.delete_client_by_id(id)
     }
 
-    pub fn get_client_list(&self) -> Result<Vec<ClientData>, Box<dyn Error>> {
-        self.db.get_client_list()
+    pub fn get_client_list(
+        &self,
+        param: &ClientListGetParam,
+    ) -> Result<QueryClientListResult, Box<dyn Error>> {
+        self.db.get_client_list(Some(param))
     }
 
     pub fn get_top_client_top_list(
@@ -424,6 +476,8 @@ impl DataServer {
         let metrics = MetricsData {
             total_query_count: self.stat.get_total_request(),
             block_query_count: self.stat.get_total_blocked_request(),
+            request_drop_count: self.stat.get_request_drop(),
+            fail_query_count: self.stat.get_total_failed_request(),
             avg_query_time: smartdns::Stats::get_avg_process_time(),
             cache_hit_rate: smartdns::Stats::get_cache_hit_rate(),
             cache_number: smartdns::Plugin::dns_cache_total_num() as u64,
@@ -442,7 +496,7 @@ impl DataServer {
     }
 
     pub fn get_free_disk_space(&self) -> u64 {
-        utils::get_free_disk_space(&self.get_data_server_config().data_root)
+        utils::get_free_disk_space(&self.get_data_server_config().db_file)
     }
 
     pub fn get_overview(&self) -> Result<OverviewData, Box<dyn Error + Send>> {
@@ -472,6 +526,10 @@ impl DataServer {
             self.stat.add_total_blocked_request(1);
         }
 
+        if data.reply_code != 0 {
+            self.stat.add_total_failed_request(1);
+        }
+
         self.db.insert_domain(&list)
     }
 
@@ -482,6 +540,7 @@ impl DataServer {
         let mut domain_data_list = Vec::new();
         let mut client_data_list = Vec::new();
         let mut blocked_num = 0;
+        let mut failed_num = 0;
         let timestamp_now = get_utc_time_ms();
 
         for req in req_list {
@@ -495,6 +554,10 @@ impl DataServer {
 
             if req.get_is_blocked() {
                 blocked_num += 1;
+            }
+
+            if req.get_rcode() != 0 {
+                failed_num += 1;
             }
 
             let domain_data = DomainData {
@@ -539,6 +602,7 @@ impl DataServer {
 
         this.stat.add_total_request(domain_data_list.len() as u64);
         this.stat.add_total_blocked_request(blocked_num as u64);
+        this.stat.add_total_failed_request(failed_num as u64);
 
         dns_log!(
             LogLevel::DEBUG,
@@ -581,6 +645,14 @@ impl DataServer {
         self.server_log.dispatch_log(level, msg, msg_len);
     }
 
+    pub async fn get_audit_log_stream(&self) -> mpsc::Receiver<ServerAuditLogMsg> {
+        return self.server_audit_log.get_audit_log_stream().await;
+    }
+
+    pub fn server_audit_log(&self, msg: &str, msg_len: i32) {
+        self.server_audit_log.dispatch_audit_log(msg, msg_len);
+    }
+
     fn server_check(&self) {
         let free_disk_space = self.get_free_disk_space();
         if free_disk_space < MIN_FREE_DISK_SPACE {
@@ -617,7 +689,7 @@ impl DataServer {
     async fn data_server_loop(this: Arc<DataServer>) -> Result<(), Box<dyn Error>> {
         let mut rx: mpsc::Receiver<()>;
         let mut data_rx: mpsc::Receiver<Box<dyn DnsRequest>>;
-        let batch_mode  = *this.recv_in_batch.lock().unwrap();
+        let batch_mode = *this.recv_in_batch.lock().unwrap();
 
         {
             let mut _rx = this.notify_rx.lock().unwrap();
@@ -628,12 +700,15 @@ impl DataServer {
 
         this.stat.clone().start_worker()?;
 
-        let mut req_list: Vec<Box<dyn DnsRequest>> = Vec::new();
+        let req_list_size = if batch_mode { 1024 * 32 } else { 1 };
+        let mut req_list: Vec<Box<dyn DnsRequest>> = Vec::with_capacity(req_list_size);
+        let batch_size = if batch_mode { 1024 * 8 } else { 1 };
+        let mut recv_buffer = Vec::with_capacity(batch_size);
         let mut batch_timer: Option<tokio::time::Interval> = None;
         let mut check_timer = tokio::time::interval(Duration::from_secs(60));
         let is_check_timer_running = Arc::new(AtomicBool::new(false));
 
-        dns_log!(LogLevel::INFO, "data server start.");
+        dns_log!(LogLevel::DEBUG, "data server start.");
 
         loop {
             tokio::select! {
@@ -661,36 +736,38 @@ impl DataServer {
                         timer.tick().await;
                     }
                 }, if batch_timer.is_some() => {
+                    batch_timer = None;
                     DataServer::data_server_handle_dns_request(this.clone(), &req_list).await;
                     req_list.clear();
-                    batch_timer = None;
                 }
-                res = data_rx.recv() => {
-                    match res {
-                        Some(req) => {
-                            req_list.push(req);
+                count = data_rx.recv_many(&mut recv_buffer, batch_size) => {
+                    if count <= 0 {
+                        continue;
+                    }
 
-                            if batch_mode {
-                                if req_list.len() == 1 {
-                                    batch_timer = Some(tokio::time::interval_at(
-                                        Instant::now() + Duration::from_millis(500),
-                                        Duration::from_secs(1),
-                                    ));
-                                }
+                    req_list.extend(recv_buffer.drain(0..count));
 
-                                if req_list.len() <= 65535 {
-                                    continue;
-                                }
-                            }
+                    if batch_mode {
+                        if req_list.len() >= 1 && batch_timer.is_none() {
+                            let fill = (req_list.len() as f32 / batch_size as f32)
+                                .max(0.0)
+                                .min(1.0);
+                            let delay_ms = (1000.0 - 990.0 * fill) as u64;
 
-                            DataServer::data_server_handle_dns_request(this.clone(), &req_list).await;
-                            req_list.clear();
-                            batch_timer = None;
+                            batch_timer = Some(tokio::time::interval_at(
+                                Instant::now() + Duration::from_millis(delay_ms),
+                                Duration::from_secs(2),
+                            ));
                         }
-                        None => {
+
+                        if req_list.len() < batch_size {
                             continue;
                         }
                     }
+
+                    batch_timer = None;
+                    DataServer::data_server_handle_dns_request(this.clone(), &req_list).await;
+                    req_list.clear();
                 }
             }
         }
@@ -702,7 +779,15 @@ impl DataServer {
 
     fn stop_data_server(&self) {
         if let Some(tx) = self.notify_tx.as_ref().cloned() {
-            let rt = self.get_plugin().get_runtime();
+            let plugin = match self.get_plugin() {
+                Ok(plugin) => plugin,
+                Err(e) => {
+                    dns_log!(LogLevel::ERROR, "get plugin error: {}", e);
+                    return;
+                }
+            };
+
+            let rt = plugin.get_runtime();
             tokio::task::block_in_place(|| {
                 let _ = rt.block_on(async {
                     let _ = tx.send(()).await;
@@ -719,7 +804,7 @@ impl DataServer {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        let rt = this.get_plugin().get_runtime();
+        let rt = this.get_plugin().unwrap().get_runtime();
 
         let ret = rt.spawn_blocking(move || -> R {
             return func();
